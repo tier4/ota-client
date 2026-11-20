@@ -62,24 +62,27 @@ What the ECU runs changes by an update only. Unpacked files found other than the
 set's at startup are kept as they are and recorded (`tree_mismatch`); the next update
 of the set puts its files in place again and applies every slot. A set is dropped
 only when it cannot be told what it is (its record is unreadable), when it is not the
-running base's (`why_not_this_bases`: applied on another image, by the image's version
-file), or when a slot cannot be mounted. One that is not the running base's, or that
-cannot be told, is never laid, and is dropped only once the running base is committed:
-a trial boot of a new base over a store the slots share may still fall back to the
-base the set was applied on, which lays it again. Nor is it the set before when a new
-set is applied: it is replaced.
+running base's (`whose_set`: applied on another image, by the image's version file,
+or another slot of the same image), or when a slot cannot be mounted. One that is not
+the running base's, or that cannot be told, is never laid, and is dropped only once
+the running base is committed: a trial boot of a new base over a store the slots
+share may still fall back to the base the set was applied on, which lays it again.
+Nor is it the set before when a new set is applied: one is refused until the running
+base is committed, and then the other base's set is replaced.
 
-Nothing is laid from, stored into or recorded in a store whose way from / is not
-root's alone (`why_not_roots_alone`): another user who can rename a directory on it
-could plant a set whose `apply` runs as root.
+Nothing is laid from, stored into, recorded in or deleted from a store whose way
+from its mount point is not root's alone (`why_not_private`): another user who can
+rename a directory on it could plant a set whose `apply` runs as root.
 
 A full OTA writes a new slot from an image, and the new base runs with its slots'
 defaults. A store on the slot's own root filesystem is not carried over (not even by
 the persist files): only the history is, with a line saying the set was left behind.
 A store on a filesystem of its own (a partition shared by both slots) stays where it
-is, with that line, and the new slot's otaclient drops the set once the new base is
-committed: it was applied on another image. Such a store needs the base's image ID to
-tell bases apart: a new set is refused on a base without one.
+is, with that line and a mark that a full update was staged, and the new slot's
+otaclient drops the set once the new base is committed: it was applied on another
+image, or on another slot of the same image (the slot's records tell). Such a store
+needs the base's image ID to tell bases apart: a new set is refused on a base
+without one.
 """
 
 from __future__ import annotations
@@ -107,10 +110,12 @@ from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from otaclient._types import VersionDetail
 from otaclient.configs.cfg import cfg
-from otaclient_common import _env, replace_root
+from otaclient_common import _env
 from otaclient_common._io import (
+    ensure_private_dir,
     file_sha256,
     read_str_from_file,
+    remove_file,
     write_str_to_file_atomic,
 )
 from otaclient_common.linux import subprocess_run_wrapper
@@ -131,12 +136,17 @@ HISTORY_ROTATED_FNAME = "history.jsonl.1"
 HISTORY_MAX_SIZE = 1024**2
 """The history rotates past this: the file and the one before it are kept."""
 LAST_RUNNING_FNAME = "last-running-boot"
+"""What was last recorded as `running`; `last-<event>-boot` for any event recorded
+once per boot (`_once_per_boot`)."""
+BASE_CHANGE_FNAME = "base-change-staged.json"
+"""Written when a full update is staged while the slots share the store and it holds
+a set: the slot that boots next may run the same image the set was applied on, which
+the image ID alone cannot tell from the base it was applied on (`whose_set`)."""
 BOOT_ID_FPATH = "/proc/sys/kernel/random/boot_id"
 
 STORE_MODE = 0o700
-"""The store is root's alone."""
-STORE_PARENT_MODE = 0o755
-"""A directory otaclient makes on the way to the store (/opt/data, /opt/data/ota)."""
+"""The store is root's alone; a directory made on the way to it is 0755
+(`ensure_private_dir`)."""
 
 MOUNT_OPTIONS = "ro,nosuid,nodev"
 """A slot may hold executables (a set may carry binaries and launch files), but
@@ -173,47 +183,19 @@ def _boot_id() -> str:
     return read_str_from_file(BOOT_ID_FPATH, _default="")
 
 
-def make_store_dir(path: Path) -> None:
-    """Make `path` (0700) with each missing parent (0755), whatever the umask: only
-    what is made here is chmod'ed, what is there keeps its mode."""
-    _missing: list[Path] = []
-    _at = Path(os.path.abspath(path))
-    while not os.path.isdir(_at):
-        _missing.append(_at)
-        _at = _at.parent
-    for _dir in reversed(_missing):
-        try:
-            os.mkdir(_dir, STORE_MODE)
-        except FileExistsError:
-            continue  # made meanwhile: left as it is
-        os.chmod(_dir, STORE_MODE if _dir == _missing[0] else STORE_PARENT_MODE)
-
-
-def why_not_roots_alone(path: Path, *, top: Path = Path("/")) -> str | None:
-    """Why the store at `path` cannot be trusted, None when it can: every directory
-    from `top` (/) down to it that exists is root's, not writable by group or others,
-    and not a symbolic link.
+def why_not_private(path: Path) -> str | None:
+    """Why the store at `path` cannot be trusted, None when it can: from the mount
+    point it is on down to it, every directory that exists is root's, not writable by
+    group or others, and not a symbolic link (`ensure_private_dir`).
 
     A set's files are bound over the base and its `apply` runs as root: a directory on
     the way that another user can write (others write under /opt/data on some
     devices) would let that user rename the store away and plant a set of their own.
     What otaclient makes on the way (0755, the store 0700) passes."""
-    _path = Path(os.path.abspath(path))
-    _dirs = [_p for _p in reversed(_path.parents) if _p == top or top in _p.parents]
-    for _dir in (*_dirs, _path):
-        try:
-            _st = os.lstat(_dir)
-        except FileNotFoundError:
-            break
-        if stat.S_ISLNK(_st.st_mode):
-            return f"{_dir} is a symbolic link"
-        if not stat.S_ISDIR(_st.st_mode):
-            return f"{_dir} is not a directory"
-        if _st.st_uid != 0 or _st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-            return (
-                f"{_dir} is not root's alone (owner uid {_st.st_uid}, mode "
-                f"{stat.S_IMODE(_st.st_mode):o})"
-            )
+    try:
+        ensure_private_dir(path, create=False)
+    except Exception as e:
+        return str(e) or repr(e)
     return None
 
 
@@ -575,77 +557,91 @@ class ParameterSetStore:
     # ------ whose the set is ------ #
 
     def why_not_trusted(self) -> str | None:
-        """Why the store cannot be trusted (`why_not_roots_alone`), None when it can:
-        nothing is laid from it, stored into it or recorded in it otherwise.
-
-        Looked at as the host sees it, from the host's /, also from an app image:
-        the other users are the host's, and the app image's own / is its image."""
-        _host = _env.get_dynamic_client_chroot_path()
-        if not _host:
-            return why_not_roots_alone(self.root)
-        return why_not_roots_alone(
-            Path(replace_root(os.path.abspath(self.root), cfg.CANONICAL_ROOT, _host)),
-            top=Path(_host),
-        )
+        """Why the store cannot be trusted (`why_not_private`), None when it can:
+        nothing is laid from it, stored into it, recorded in it or deleted from it
+        otherwise. Checked from the mount point the store is on, which an app image
+        sees as the host does (it binds the host's /opt recursively)."""
+        return why_not_private(self.root)
 
     def is_shared(self) -> bool:
         """Whether the store is on another filesystem than the running slot's root: a
         partition both slots mount, which may hold the set another base applied."""
         return not on_the_active_root_filesystem(self.root)
 
-    def why_not_this_bases(
-        self, record: AppliedRecord, running_image_id: str
-    ) -> str | None:
-        """Why the set of `record` is not the running base's, None when it is: it was
-        applied on another image, or on an image without an ID while the store is
-        shared by the slots (two such bases cannot be told apart)."""
-        if record.base_image_id != running_image_id:
-            return (
-                f"the set was applied on image {record.base_image_id!r}, the slot "
+    def base_change_staged(self) -> bool:
+        """Whether a full update was staged since the set was applied, the slots
+        sharing the store (`BASE_CHANGE_FNAME`)."""
+        return os.path.lexists(self.root / BASE_CHANGE_FNAME)
+
+    def whose_set(
+        self,
+        running_image_id: str,
+        *,
+        slot_records: CurrentSlotRecords | None = None,
+    ) -> tuple[AppliedRecord | None, str | None]:
+        """The set the store holds (the applied one, else the one an unfinished switch
+        left in `previous/`), and why it is not the running base's, None when it is.
+
+        It is not when its record cannot be read, when it was applied on another
+        image, when it was applied on an image without an ID while the slots share the
+        store (two such bases cannot be told apart), or when a full update was staged
+        since (the same image may have been installed again in the other slot) and
+        the slot does not record the set's release: the slot it was applied on still
+        does. Without `slot_records` (at boot), a staged full update is enough: who
+        runs is told at otaclient's start."""
+        try:
+            _set = self._read_record(self.applied_dir) or self._read_record(
+                self.previous_dir
+            )
+        except Exception as e:
+            return None, f"the set's record is unreadable: {e!r}"
+        if _set is None:
+            return None, None
+        if _set.base_image_id != running_image_id:
+            return _set, (
+                f"the set was applied on image {_set.base_image_id!r}, the slot "
                 f"runs image {running_image_id!r}"
             )
-        if not record.base_image_id and self.is_shared():
-            return (
+        if not _set.base_image_id and self.is_shared():
+            return _set, (
                 "the set was applied on an image without an image ID, and the slots "
                 "share the store: which base it was applied on cannot be told"
             )
-        return None
+        if self.base_change_staged():
+            if slot_records is None:
+                return _set, (
+                    "a full update was staged since the set was applied: which slot "
+                    "runs is told when otaclient starts"
+                )
+            if not _set.is_recorded_by(slot_records):
+                return _set, (
+                    "a full update was staged since the set was applied, and this "
+                    "slot does not record the set's release: it runs the new base"
+                )
+        return _set, None
 
-    def applied_record_of(self, running_image_id: str) -> AppliedRecord | None:
-        """The applied set's record when the set is the running base's: what the
-        set before an update is, and what it covers; None otherwise."""
-        _record = self.applied_record()
-        if _record is None or self.why_not_this_bases(_record, running_image_id):
+    def applied_record_of(
+        self, running_image_id: str, *, slot_records: CurrentSlotRecords
+    ) -> AppliedRecord | None:
+        """The applied set's record when the set is the running base's (`whose_set`):
+        what the set before an update is, and what it covers; None otherwise."""
+        if self.whose_set(running_image_id, slot_records=slot_records)[1] is not None:
             return None
-        return _record
+        return self.applied_record()
 
-    def set_aside_another_bases_set(self, running_image_id: str) -> None:
-        """Before a switch: a set in the store that is not the running base's (applied
-        on another image while the slots share the store, or whose record cannot be
-        read) is not the set before. It goes as a dropped set goes, with nothing
-        unmounted, as it was never laid on this base: the switch is then a first
-        set's, every slot of the new set applied, and a failure undoes it to the
-        base's defaults, never to the other base's set."""
-        if not self.applied_dir.exists():
-            return
-        try:
-            _record = self._read_record(self.applied_dir)
-            _why = (
-                self.why_not_this_bases(_record, running_image_id) if _record else None
+    def set_aside_another_bases_set(
+        self, running_image_id: str, *, slot_records: CurrentSlotRecords
+    ) -> None:
+        """Before a switch, the running base committed: a set in the store that is not
+        the running base's (`whose_set`) is not the set before. It is dropped as at
+        otaclient's start, nothing unmounted: the switch is then a first set's, every
+        slot of the new set applied, and a failure undoes it to the base's defaults,
+        never to the other base's set."""
+        _set, _why = self.whose_set(running_image_id, slot_records=slot_records)
+        if _why is not None:
+            self._drop_another_bases(
+                _set, f"replaced by a set on image {running_image_id!r}: {_why}"
             )
-        except Exception as e:
-            _record, _why = None, f"the set's record is unreadable: {e!r}"
-        if _why is None:
-            return
-        _what = _record.describe() if _record else "the applied set"
-        logger.warning(f"{_what} is not this base's ({_why}): replaced, not kept")
-        self._set_aside_applied()
-        shutil.rmtree(self.discard_dir, ignore_errors=True)
-        self.record_event(
-            "dropped",
-            reason=f"replaced by a set on image {running_image_id!r}: {_why}",
-            **(_record.evidence() if _record else {}),
-        )
 
     def record_event(self, event: str, **fields: Any) -> None:
         """Append one line of evidence. Never raises: the history is a record of
@@ -656,7 +652,7 @@ class ParameterSetStore:
             logger.warning(f"not recording {event}: the store is not trusted ({_why})")
             return
         try:
-            make_store_dir(self.root)
+            ensure_private_dir(self.root, mode=STORE_MODE)
             if (
                 self.history_file.exists()
                 and self.history_file.stat().st_size > HISTORY_MAX_SIZE
@@ -671,7 +667,7 @@ class ParameterSetStore:
 
     def prepare_staging(self) -> Path:
         shutil.rmtree(self.staging_dir, ignore_errors=True)
-        make_store_dir(self.root)
+        ensure_private_dir(self.root, mode=STORE_MODE)
         self.staging_dir.mkdir(mode=0o700)
         return self.staging_dir
 
@@ -986,10 +982,11 @@ class ParameterSetStore:
         Only what `applied/` says is mounted, and only when it holds: what is not
         decided here is left to otaclient's start (`check_at_startup`), which has the
         slot's records to decide by. Nothing is laid from a store that is not root's
-        alone, nor a set that is not the running base's (`why_not_this_bases`: a
-        trial boot of a new base may run over the other base's set in a store the
-        slots share), nor a set whose record cannot be read: those are logged and the
-        store is left as it is. Nothing is mounted while a switch is unfinished
+        alone, nor a set this boot cannot tell is the running base's (`whose_set`
+        without the slot's records: a trial boot of a new base may run over the
+        other base's set in a store the slots share), nor a set whose record cannot
+        be read or is of a newer schema than this otaclient's: those are logged and
+        the store is left as it is. Nothing is mounted while a switch is unfinished
         (`previous/`: otaclient completes it or rolls it back). No `apply` runs:
         what reads a slot has not started yet. One event is recorded when the set is
         the running base's, none otherwise.
@@ -1007,29 +1004,36 @@ class ParameterSetStore:
                 return True
             if (_untrusted := self.why_not_trusted()) is not None:
                 logger.error(
-                    f"the parameter set store {self.root} is not root's alone "
-                    f"({_untrusted}): nothing is mounted"
+                    f"the parameter set store is not root's alone ({_untrusted}): "
+                    "nothing is mounted"
                 )
                 return False
-            try:
-                _record = self._read_record(self.applied_dir)
-                _set = _record or self._read_record(self.previous_dir)
-            except Exception as e:
-                logger.error(
-                    f"the parameter set's record is unreadable ({e!r}): nothing is "
-                    "mounted, otaclient drops it when it starts"
-                )
-                return False
+            _set, _why = self.whose_set(running_image_id)
             if _set is None:
-                logger.info("no parameter set is applied")
-                return True
-            if (_why := self.why_not_this_bases(_set, running_image_id)) is not None:
+                if _why is None:
+                    logger.info("no parameter set is applied")
+                    return True
+                logger.error(
+                    f"{_why}: nothing is mounted, otaclient drops the set once this "
+                    "base is committed"
+                )
+                return False
+            if _why is not None:
                 logger.warning(
-                    f"parameter set {_set.describe()} is not this base's ({_why}): "
-                    "nothing is mounted and the store is left as it is; otaclient "
-                    "drops it once this base is committed"
+                    f"parameter set {_set.describe()} is not laid ({_why}): the store "
+                    "is left as it is, otaclient decides when it starts, and drops "
+                    "the set once this base is committed if it is not this base's"
                 )
                 return True
+            if _set.schema_version > RECORD_SCHEMA_VERSION:
+                logger.warning(
+                    f"parameter set {_set.describe()} was recorded with schema "
+                    f"{_set.schema_version}, newer than this otaclient's "
+                    f"{RECORD_SCHEMA_VERSION}: nothing is mounted, left to "
+                    "otaclient's start"
+                )
+                return True
+            _record = self._read_record(self.applied_dir)
             if self.previous_dir.exists() or _record is None:
                 logger.warning(
                     "a parameter set switch did not finish: nothing is mounted, "
@@ -1039,13 +1043,13 @@ class ParameterSetStore:
                     "not_mounted_at_boot",
                     reason="a switch did not finish",
                     boot_id=_boot,
+                    set_manifest_digest=_set.set_manifest_digest,
                 )
                 return True
         except Exception as e:
             logger.error(f"failed to read the parameter set store: {e!r}")
             return False
 
-        assert _record is not None  # the running base's applied set, from here on
         _mounted: list[str] = []
         _already: list[str] = []
         _made: list[str] = []
@@ -1071,7 +1075,7 @@ class ParameterSetStore:
         self.record_event(
             "mounted_at_boot",
             boot_id=_boot,
-            set=_record.set_manifest_digest,
+            set_manifest_digest=_record.set_manifest_digest,
             mounted=_mounted,
             already_mounted=_already,
             mount_points_made=_made,
@@ -1093,52 +1097,58 @@ class ParameterSetStore:
         `running_image_id` is the running image's ID from its version file, "" when
         it has none (or none otaclient reads), as `base_image_id` was recorded.
         `base_committed` is whether the running base is committed (the slot booted at
-        SUCCESS or INITIALIZED), as the boot controller concluded the boot.
+        SUCCESS or INITIALIZED, otaclient not the downloaded client), as the boot
+        controller concluded the boot.
 
         The boot-time unit (`mount_at_boot`) mounted the set at boot, before anything
         read it; this is where it is checked, and where that is recorded. A switch
         that did not finish (`previous/` still there) is completed when the slot
         records the applied set's release, and rolled back otherwise. Files other
         than the set's are kept and recorded: what the ECU runs changes by an update
-        only. A slot that is not mounted (the boot-time unit is not installed, or
-        could not mount it) is mounted, and its `apply` runs.
+        only. A slot that is not mounted (the boot-time unit is not installed, could
+        not mount it, or left it to this start after a full update was staged) is
+        mounted, and its `apply` runs.
 
-        A set that is not the running base's (`why_not_this_bases`), or whose record
-        cannot be read, is not laid. It is dropped once the running base is
-        committed; until then (a trial boot of a new base that may still fall back
-        to the base the set was applied on) it is kept as it is, recorded once per
-        boot. Otherwise the set is dropped (the slots get the base's defaults, the
-        slot reports the base) only when a slot cannot be mounted; an `apply` that
-        fails after a slot was mounted again is recorded, the set kept. Nothing is
-        laid, recorded or deleted when the store is not root's alone.
+        A set that is not the running base's (`whose_set`), or whose record cannot be
+        read, is not laid. It is dropped once the running base is committed, with
+        nothing unmounted (it was never laid on this base); until then (a trial boot
+        of a new base that may still fall back to the base the set was applied on)
+        it is kept as it is, recorded once per boot. Otherwise the set is dropped
+        (the slots get the base's defaults, the slot reports the base) only when a
+        slot cannot be mounted; an `apply` that fails after a slot was mounted again
+        is recorded, the set kept. Nothing is laid, recorded or deleted when the
+        store is not root's alone.
         """
         if (_untrusted := self.why_not_trusted()) is not None:
             logger.error(
-                f"the parameter set store {self.root} is not root's alone "
-                f"({_untrusted}): nothing is laid from it, and nothing deleted"
+                f"the parameter set store is not root's alone ({_untrusted}): "
+                "nothing is laid from it, and nothing deleted"
             )
             return None
         # whose set the store holds, before anything in it changes
-        try:
-            _set = self._read_record(self.applied_dir) or self._read_record(
-                self.previous_dir
-            )
-            _why = self.why_not_this_bases(_set, running_image_id) if _set else None
-        except Exception as e:
-            _set, _why = None, f"the set's record is unreadable: {e!r}"
+        _set, _why = self.whose_set(running_image_id, slot_records=slot_records)
         if _why is not None:
-            if not base_committed:
+            if base_committed:
+                self._drop_another_bases(_set, _why)
+            else:
                 self._keep_for_its_base(_set, _why)
-                return None
-            self._drop(
-                None,
-                _why,
-                mount_points=self._paths(_set),
-                evidence=_set.evidence() if _set else None,
-            )
-            # a switch the other base did not finish is not this base's to finish
-            shutil.rmtree(self.previous_dir, ignore_errors=True)
             return None
+        _because = (
+            "the boot-time unit (otaclient mount-parameter-set) did not mount them"
+        )
+        if self.base_change_staged():
+            # the slot the set was applied on: the full update staged from it did not
+            #   switch, or fell back; the boot left the set to this start
+            logger.warning(
+                "a full update was staged since the parameter set was applied, and "
+                "this slot still records the set's release: laid again"
+            )
+            remove_file(self.root / BASE_CHANGE_FNAME)
+            self.record_event(
+                "base_change_not_taken",
+                set_manifest_digest=_set.set_manifest_digest if _set else None,
+            )
+            _because = "a full update was staged, the boot left them to this start"
 
         shutil.rmtree(self.discard_dir, ignore_errors=True)
         if self.previous_dir.exists():
@@ -1165,7 +1175,7 @@ class ParameterSetStore:
             _s for _s in _record.slots if not self._mounter.is_mounted(_s.path)
         ]
         if _unmounted and not self._mount_again(
-            _record, _unmounted, slot_records=slot_records
+            _record, _unmounted, slot_records=slot_records, because=_because
         ):
             return None
 
@@ -1179,26 +1189,51 @@ class ParameterSetStore:
         logger.warning(
             f"{_what} is not laid ({why}): kept as it is until this base is committed"
         )
-        _boot = _boot_id()
-        _last = self._last_event()
-        if _last.get("event") == "not_laid" and _last.get("boot_id") == _boot:
-            return
-        self.record_event(
-            "not_laid",
-            reason=why,
-            boot_id=_boot,
-            **(record.evidence() if record else {}),
-        )
+        _digest = record.set_manifest_digest if record else ""
+        if self._once_per_boot("not-laid", _digest):
+            self.record_event(
+                "not_laid",
+                reason=why,
+                boot_id=_boot_id(),
+                **(record.evidence() if record else {}),
+            )
 
-    def _last_event(self) -> dict[str, Any]:
-        """The last line of the history, {} when there is none to read."""
+    def _once_per_boot(self, name: str, key: str) -> bool:
+        """Whether `key` is new in this boot for `name` (`last-<name>-boot`), noted
+        when it is: what is recorded once per boot is not recorded again by an
+        otaclient that restarts."""
+        _boot = _boot_id()
+        _key = " ".join([_boot, *key.split()]) if key else _boot
+        _file = self.root / f"last-{name}-boot"
+        if read_str_from_file(_file, _default="") == _key:
+            return False
         try:
-            with open(self.history_file, "rb") as _f:
-                _f.seek(max(0, _f.seek(0, os.SEEK_END) - 64 * 1024))
-                _lines = _f.read().splitlines()
-            return json.loads(_lines[-1]) if _lines else {}
-        except Exception:
-            return {}
+            write_str_to_file_atomic(_file, _key)
+        except Exception as e:
+            logger.warning(f"failed to note {name} for this boot: {e!r}")
+        return True
+
+    def _drop_another_bases(self, record: AppliedRecord | None, why: str) -> None:
+        """Drop a set that is not the running base's, the running base committed: it
+        was never laid on this base, so nothing at its slots' paths is unmounted
+        (what is mounted there is this base's own); the set and a switch it left
+        unfinished leave the store, and so does a staged full update's mark."""
+        _what = record.describe() if record else "the applied set"
+        logger.warning(
+            f"{_what} is not this base's ({why}): dropped, nothing unmounted, it was "
+            "never laid on this base"
+        )
+        _evidence = record.evidence() if record else {}
+        try:
+            self._set_aside_applied()
+            shutil.rmtree(self.discard_dir, ignore_errors=True)
+            shutil.rmtree(self.previous_dir, ignore_errors=True)
+            remove_file(self.root / BASE_CHANGE_FNAME)
+        except Exception as e:
+            logger.error(f"failed to drop {_what}: {e!r}")
+            self.record_event("drop_failed", reason=why, error=str(e), **_evidence)
+            return
+        self.record_event("dropped", reason=why, **_evidence)
 
     def _finish_switch(self, slot_records: CurrentSlotRecords) -> None:
         try:
@@ -1236,16 +1271,16 @@ class ParameterSetStore:
         unmounted: list[RecordedSlot],
         *,
         slot_records: CurrentSlotRecords,
+        because: str,
     ) -> bool:
-        """Slots of the applied set that are not mounted: the boot-time unit did not
-        mount them (it is not installed, or failed for them), so they ran with the
-        base's defaults until now. They are mounted and their `apply` runs again; a
-        slot that cannot be mounted drops the set (False), an `apply` that fails is
-        recorded and the set kept (True)."""
+        """Slots of the applied set that are not mounted (`because`: the boot-time
+        unit is not installed, failed for them, or left them to this start), so they
+        ran with the base's defaults until now. They are mounted and their `apply`
+        runs again; a slot that cannot be mounted drops the set (False), an `apply`
+        that fails is recorded and the set kept (True)."""
         logger.warning(
-            f"slots {[_s.name for _s in unmounted]} are not mounted: the boot-time "
-            "unit (otaclient mount-parameter-set) did not mount them; mounting them "
-            "and running their apply"
+            f"slots {[_s.name for _s in unmounted]} are not mounted ({because}): "
+            "mounting them and running their apply"
         )
         try:
             # the slots not mounted are `unmounted`: _mount lays those only, making
@@ -1283,21 +1318,15 @@ class ParameterSetStore:
         """`running` once per boot, `tree_mismatch` once per boot and finding: an
         otaclient restarting in a loop adds no lines."""
         _boot = _boot_id()
-        _seen = read_str_from_file(self.root / LAST_RUNNING_FNAME, _default="")
-        # one line: what is compared with what the file gives back
-        _key = _boot if mismatch is None else " ".join([_boot, *mismatch.split()])
-        if _seen == _key:
-            return
-        if _seen.split(" ", 1)[0] != _boot:
+        if self._once_per_boot("running", ""):
             self.record_event("running", boot_id=_boot, **record.evidence())
-        if mismatch is not None:
+        if mismatch is not None and self._once_per_boot("tree-mismatch", mismatch):
             self.record_event(
                 "tree_mismatch",
                 reason=mismatch,
                 boot_id=_boot,
                 set=record.set_manifest_digest,
             )
-        write_str_to_file_atomic(self.root / LAST_RUNNING_FNAME, _key)
 
     def _reboot_required(self, required: bool, after: str) -> None:
         if required:
@@ -1353,29 +1382,48 @@ class ParameterSetStore:
 
     # ------ at a full OTA ------ #
 
-    def carry_history_to(self, standby_root: Path, *, reason: str) -> None:
-        """At a full OTA, which writes a new slot from an image: the applied set stays
-        behind, and the history says so. Never raises.
+    def carry_history_to(self, standby_root: Path | None, *, to_version: str) -> None:
+        """At a full update, which writes a new slot from an image: the applied set
+        stays behind, and the history says so. Never raises.
 
         A store on the running slot's own root filesystem is not in the new slot:
-        the history is copied there, with that line. A store elsewhere (a partition
-        of its own, shared by the slots) is the new slot's too: nothing is copied,
-        the line is added where it is (`shared`), and the new slot's otaclient drops
-        the set at its start, as it was applied on another image."""
+        the history is copied into `standby_root`, with that line, unless the way to
+        the store there is not root's alone (a link the new image has on it, say).
+        A store elsewhere (a partition of its own, shared by the slots), or a new slot
+        written as an image (no `standby_root`), keeps the set: the line is added
+        where it is (`shared`), and when the store holds a set, so is the mark that a
+        full update was staged (`BASE_CHANGE_FNAME`): the new slot may run the same
+        image, and only the slot's records then tell it from the one the set was
+        applied on (`whose_set`)."""
         try:
             _record = self.applied_record()
             if _record is None and not self.history_file.exists():
                 return  # no set was ever applied here: nothing to carry
             _left_behind = {
-                "reason": reason,
+                "reason": f"full OTA to {to_version}",
                 "set": _record.set_manifest_digest if _record else None,
                 "set_version": _record.set_version if _record else None,
             }
-            if self.is_shared():
+            if standby_root is None or self.is_shared():
+                if _record is not None and self.why_not_trusted() is None:
+                    write_str_to_file_atomic(
+                        self.root / BASE_CHANGE_FNAME,
+                        json.dumps(
+                            {
+                                "boot_id": _boot_id(),
+                                "to_version": to_version,
+                                "time": _now(),
+                            }
+                        ),
+                    )
                 self.record_event("left_behind", shared=True, **_left_behind)
                 return
             _dst = standby_root / Path(cfg.PARAMETER_SET_DPATH).relative_to("/")
-            make_store_dir(_dst)
+            try:
+                ensure_private_dir(_dst, mode=STORE_MODE)
+            except PermissionError as e:
+                logger.warning(f"not carrying the parameter set history: {e}")
+                return
             for _fname in (HISTORY_ROTATED_FNAME, HISTORY_FNAME):
                 if (self.root / _fname).exists():
                     shutil.copyfile(self.root / _fname, _dst / _fname)
@@ -1392,20 +1440,20 @@ def mount_parameter_set_command() -> int:
     Run by a oneshot unit ordered before local-fs.target
     (samples/otaclient-parameter-set.service_app), in the app image as otaclient runs
     there: mounted in the host's namespace, the host's root seen at its chroot path.
-    It reads the store and the running image's version file only: no ecu_info, no
-    gRPC, no boot controller, and it bounds each command it runs. Returns the exit
-    code: 0 when every slot of the applied set is mounted (or nothing is to be), 1
-    when one is not. Never raises.
+    It needs the store and the running image's version file only: no gRPC and no
+    boot controller, and it bounds each command it runs. Importing otaclient's
+    configuration still parses ecu_info.yaml and proxy_info.yaml, which it does not
+    use: before /boot is mounted, that logs that they were not found. Returns the
+    exit code: 0 when every slot of the applied set is mounted (or nothing is to be),
+    1 when one is not. Never raises.
     """
     logging.basicConfig(level=logging.INFO, format=cfg.LOG_FORMAT)
     try:
-        # imported here: the version file module reads the store, as this one does
-        from otaclient.boot_control._image_version_file import (
-            load_image_version_detail,
-        )
+        # imported here: the version file module imports this one (it reads the
+        #   store), so a module-level import would be a cycle
+        from otaclient.boot_control._image_version_file import running_image_id
 
-        _running = load_image_version_detail()
-        _ok = ParameterSetStore().mount_at_boot(_running.image_id if _running else "")
+        _ok = ParameterSetStore().mount_at_boot(running_image_id())
     except Exception as e:
         logger.exception(f"failed to mount the parameter set: {e!r}")
         return 1

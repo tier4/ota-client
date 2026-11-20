@@ -1184,6 +1184,37 @@ def reports(updater: OTAUpdaterForPartitionImage) -> list:
 class TestExecute:
     """The whole update, from the verified index to the reboot."""
 
+    def test_a_parameter_set_stays_behind_in_the_store_on_optdata(
+        self,
+        tmp_path: Path,
+        pool,
+        server,
+        index_verified_from,
+        no_wait_before_reboot,
+        mocker,
+    ):
+        """The new slot is written as an image: the store, on the partition the
+        slots share, keeps the set, says it stays behind and marks the full update
+        staged, before the standby is recorded as the one to boot."""
+        _served, _ = serve_an_image(tmp_path / "served", config(rootfs(), boot()))
+        server(_served)
+        index_verified_from(_served)
+        _store = mocker.MagicMock()
+        mocker.patch.object(_mod, "ParameterSetStore", return_value=_store)
+        _updater = make_full_updater(tmp_path, pool=pool)
+        _post_update = mocker.spy(_updater._boot_controller, "post_update")
+        _order = mocker.MagicMock()
+        _order.attach_mock(_store.carry_history_to, "carry_history_to")
+        _order.attach_mock(_post_update, "post_update")
+
+        _updater.execute()
+
+        _store.carry_history_to.assert_called_once_with(None, to_version="3.0.0")
+        assert [_c[0] for _c in _order.mock_calls] == [
+            "carry_history_to",
+            "post_update",
+        ]
+
     def test_a_rootfs_release_goes_through_the_installer_to_the_reboot(
         self, tmp_path: Path, pool, server, index_verified_from, no_wait_before_reboot
     ):

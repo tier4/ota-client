@@ -107,17 +107,27 @@ def load_image_version_detail(*, root: StrOrPath | None = None) -> VersionDetail
     return VersionDetail(image_id=_image_id)
 
 
+def running_image_id() -> str:
+    """The running image's ID from its version file, "" when it has none (or none
+    otaclient reads): what a parameter set's `base_image_id` is compared with."""
+    _detail = load_image_version_detail()
+    return _detail.image_id if _detail else ""
+
+
 def _release_of_the_applied_parameter_set(
     recorded: VersionDetail, running_image_id: str
 ) -> bool:
     """Whether `recorded` is the release of the parameter set applied on this slot,
     over the running image: a parameter image has its own image ID, and the running
-    image's version file does not change with it."""
-    _applied = ParameterSetStore().applied_record()
+    image's version file does not change with it. A set that is not laid is not:
+    one in a store that is not root's alone, or one this slot cannot tell is the
+    running base's (`ParameterSetStore.whose_set`, without the slot's records)."""
+    _store = ParameterSetStore()
+    if _store.why_not_trusted() is not None:
+        return False
+    _applied, _why = _store.whose_set(running_image_id)
     return (
-        _applied is not None
-        and _applied.image_id == recorded.image_id
-        and _applied.base_image_id == running_image_id
+        _why is None and _applied is not None and _applied.image_id == recorded.image_id
     )
 
 

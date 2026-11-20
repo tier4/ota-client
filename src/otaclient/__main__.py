@@ -19,15 +19,16 @@ if __name__ == "__main__":
 
     import sys
 
-    # NOTE that we currently don't configure otaclient to take any other args,
-    #   so no need to use argparser but just directly check the first arg.
+    # NOTE: otaclient takes no options; the first arg, when there is one, names a
+    #   subcommand (version, mount-parameter-set), so no argparser is needed.
     if len(sys.argv) > 1 and sys.argv[1] == "version":
         from _otaclient_version import version
 
         print(version)
     elif len(sys.argv) > 1 and sys.argv[1] == "mount-parameter-set":
         # at boot, before local-fs.target: lay the applied parameter set, see
-        #   samples/otaclient-parameter-set.service_app
+        #   samples/otaclient-parameter-set.service_app; otaclient itself is not
+        #   started (nor imported)
         from otaclient.parameter_set import mount_parameter_set_command
 
         sys.exit(mount_parameter_set_command())

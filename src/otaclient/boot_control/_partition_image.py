@@ -65,6 +65,7 @@ from otaclient_common._io import (
 from ._dpi import DPIError, DPIProtocol, dpi_from_ecu_info
 from ._image_version_file import resolve_active_slot_version_detail
 from ._ota_status_control import OTAStatusFilesControl
+from ._platform_paths import OTA_STATUS_DNAME, STAGING_DPATH, STATE_DPATHS
 
 if TYPE_CHECKING:
     from ._ota_config_files import OTAConfigFiles
@@ -98,57 +99,23 @@ class _Platform:
 PLATFORMS = {
     "grub": _Platform(
         bootloader=BootloaderType.GRUB_VERITY,
-        state_dir="/boot",
-        staging_dir="/opt/data/otaclient",
+        state_dir=STATE_DPATHS["grub"],
+        staging_dir=STAGING_DPATH,
     ),
     "l4t": _Platform(
         bootloader=BootloaderType.JETSON_DPI,
-        state_dir="/opt/data",
-        staging_dir="/opt/data/otaclient",
+        state_dir=STATE_DPATHS["l4t"],
+        staging_dir=STAGING_DPATH,
     ),
     "driveos": _Platform(
         bootloader=BootloaderType.DRIVEOS_DPI,
-        state_dir="/opt/data",
-        staging_dir="/opt/data/otaclient",
+        state_dir=STATE_DPATHS["driveos"],
+        staging_dir=STAGING_DPATH,
     ),
 }
 """The device sides the DPI may report. Getting the state directory wrong writes
 the standby slot's status into the slot that is about to be overwritten, so an
 unknown platform is refused rather than defaulted."""
-
-OTA_STATUS_DNAME = "ota-status"
-
-DPI_PLATFORM_PATHS = (
-    "/opt/data/ota",
-    "/opt/data/ota-agent",
-    "/opt/data/ota-cache",
-    "/opt/data/ota-client",
-    "/opt/data/ota-du",
-    "/opt/data/ota-esync",
-    "/opt/data/ota-health",
-    "/opt/data/esync",
-)
-"""What the DPI and the platform it installs keep on optdata, besides otaclient's own
-state and staging directories (`PLATFORMS`): the eSync download and staged packages,
-the agent delivered on its own, otaclient's proxy cache and downloaded client (which
-/ota-cache and /.otaclient.squashfs link to), DRIVE Update's and the DPI's records,
-the health check's reason, and the eSync client's tree. From tier4/ota-esync-agent:
-deploy/common/ota-optdata-firstboot, deploy/install-agent.sh and
-deploy/*/install-platform.sh."""
-
-
-def platform_reserved_paths() -> tuple[str, ...]:
-    """What otaclient and the platform keep on a partition-based layout's persistent
-    storage, which a parameter set's slot must not hide: otaclient's status
-    directories (with the boot an update was staged in) and staging directory of
-    every platform, and the DPI's directories."""
-    _paths = {_p.staging_dir for _p in PLATFORMS.values()}
-    _paths.update(
-        str(Path(_p.state_dir) / OTA_STATUS_DNAME) for _p in PLATFORMS.values()
-    )
-    _paths.update(DPI_PLATFORM_PATHS)
-    return tuple(sorted(_paths))
-
 
 BOOT_ID_FPATH = "/proc/sys/kernel/random/boot_id"
 STAGED_IN_BOOT_FNAME = "staged-in-boot"
@@ -475,6 +442,16 @@ class PartitionImageBootController:
         self._ota_status_control.store_current_version(
             version=version, version_detail=version_detail
         )
+
+    def standby_armed_in_this_boot(self) -> bool:
+        """Whether an update was staged in this boot: the DPI arms the standby slot
+        for one trial boot as it writes it, and a failure after that (or an abort)
+        leaves it armed, so that the next reboot, whoever asks for it, boots the
+        trial. Staged in an earlier boot, the reboot since concluded it."""
+        try:
+            return self._staged_in_boot_fpath.read_text().strip() == _current_boot_id()
+        except FileNotFoundError:
+            return False
 
     def reboot_current_slot(self) -> NoReturn:
         """Reboot into the slot that runs now, through the DPI, as every reboot on

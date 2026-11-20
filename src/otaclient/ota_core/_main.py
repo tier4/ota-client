@@ -67,7 +67,7 @@ from otaclient._utils import (
     wait_and_log,
 )
 from otaclient.boot_control import get_boot_controller
-from otaclient.boot_control._image_version_file import load_image_version_detail
+from otaclient.boot_control._image_version_file import running_image_id
 from otaclient.boot_control.protocol import (
     ParameterSetBootControllerProtocol,
     PartitionLayoutBootControllerProtocol,
@@ -234,6 +234,7 @@ class OTAClient:
 
         # load and report booted OTA status
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
+        self._base_committed = _base_committed(_boot_ctrl_loaded_ota_status)
         self._live_ota_status = _boot_ctrl_loaded_ota_status
         if _boot_ctrl_loaded_ota_status == OTAStatus.ABORTED:
             self._aborted_status_report_deadline = (
@@ -248,7 +249,7 @@ class OTAClient:
         #   reports its base again) if it does not hold
         if isinstance(self.boot_controller, ParameterSetBootControllerProtocol):
             _check_parameter_set_at_startup(
-                self.boot_controller, booted_ota_status=_boot_ctrl_loaded_ota_status
+                self.boot_controller, base_committed=self._base_committed
             )
         self._reload_and_report_current_version()
         # NOTE: restore the failure info of the previous failed OTA, as otaclient
@@ -524,6 +525,7 @@ class OTAClient:
                         ca_store=self.ca_store,
                         abort_handler=self._abort_handler,
                         boot_controller=self.boot_controller,
+                        base_committed=self._base_committed,
                         image_identifier=image_id,
                         **_common_args,
                     )
@@ -898,18 +900,31 @@ def ota_core_process(
     )
 
 
+def _base_committed(booted_ota_status: OTAStatus) -> bool:
+    """Whether the running base is committed, as the boot controller concluded this
+    boot: booted at SUCCESS or INITIALIZED. At any other status (a trial boot the
+    boot controller did not commit, say) the platform may still go back to the base
+    a set in a store the slots share was applied on.
+
+    The downloaded dynamic client's booted status is set to SUCCESS whatever it was:
+    it never takes the base as committed, the installed otaclient decided at its
+    start in this boot."""
+    return (
+        booted_ota_status in (OTAStatus.SUCCESS, OTAStatus.INITIALIZED)
+        and not _env.is_running_as_downloaded_dynamic_app()
+    )
+
+
 def _check_parameter_set_at_startup(
     boot_controller: ParameterSetBootControllerProtocol,
     *,
-    booted_ota_status: OTAStatus,
+    base_committed: bool,
 ) -> None:
     """Check the applied parameter set, if any; a dropped one gives the slot its
-    base's version records back. Never raises: otaclient starts either way.
-
-    A set of another base is dropped only once the running base is committed: booted
-    at SUCCESS or INITIALIZED. At any other status (a trial boot the boot controller
-    did not commit, say) the platform may still go back to the base the set was
-    applied on, which then lays it again."""
+    base's version records back. A set of another base is dropped only once the
+    running base is committed (`_base_committed`); until then it is kept, and the
+    base it was applied on lays it again when the platform falls back to it. Never
+    raises: otaclient starts either way."""
     try:
         _store = ParameterSetStore()
         if not any(
@@ -917,12 +932,10 @@ def _check_parameter_set_at_startup(
             for _d in (_store.applied_dir, _store.previous_dir, _store.discard_dir)
         ):
             return
-        _running = load_image_version_detail()
         _store.check_at_startup(
-            _running.image_id if _running else "",
+            running_image_id(),
             slot_records=boot_controller,
-            base_committed=booted_ota_status
-            in (OTAStatus.SUCCESS, OTAStatus.INITIALIZED),
+            base_committed=base_committed,
         )
     except Exception as e:
         logger.warning(f"failed to check the parameter set: {e!r}")

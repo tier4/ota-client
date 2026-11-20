@@ -39,6 +39,7 @@ from ota_image_libs.v1.parameter_set.schema import (
 )
 from ota_image_libs.v1.parameter_set.slots import (
     APPLY_REBOOT,
+    RESERVED_PATHS,
     apply_comes_with_set,
     check_applies_in_set,
     check_slots_in_tree,
@@ -50,10 +51,13 @@ from ota_metadata.errors import ImageMetadataInvalid
 from ota_metadata.utils.cert_store import CAStoreMap
 from otaclient import errors as ota_errors
 from otaclient._types import UpdatePhase, VersionDetail
-from otaclient.boot_control._image_version_file import load_image_version_detail
-from otaclient.boot_control._partition_image import platform_reserved_paths
+from otaclient.boot_control._image_version_file import running_image_id
+from otaclient.boot_control._platform_paths import (
+    OTA_PLATFORM_PATHS,
+    platform_reserved_paths,
+)
 from otaclient.boot_control.protocol import ParameterSetBootControllerProtocol
-from otaclient.configs.cfg import cfg
+from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.ota_core._abort_handler import AbortHandler
 from otaclient.ota_core._common import download_exception_handler
 from otaclient.ota_core._update_libs import (
@@ -82,23 +86,28 @@ logger = logging.getLogger(__name__)
 LAYER_FNAME = "layer.tar.zst"
 
 
-OTA_PLATFORM_PATHS = ("/etc/ota", "/usr/lib/ota")
-"""The OTA platform's configuration and programs in the image: in the image library's
-RESERVED_PATHS from its next release, passed here until otaclient takes that one."""
+BOOT_UNIT = "otaclient-parameter-set.service"
+"""The unit that lays the applied set at boot (`otaclient mount-parameter-set`)."""
+BOOT_UNIT_WANTS = tuple(
+    f"{_d}/local-fs.target.wants/{BOOT_UNIT}"
+    for _d in ("/etc/systemd/system", "/usr/lib/systemd/system", "/lib/systemd/system")
+)
+"""Where the unit is enabled, in the image or by the platform."""
 
 
-def reserved_paths() -> tuple[str, ...]:
+def reserved_paths(*, host_root: str = cfg.CANONICAL_ROOT) -> tuple[str, ...]:
     """What otaclient reads or writes for itself, besides what every consumer does
-    (the image library's RESERVED_PATHS: /boot, /etc/fstab, /opt/ota, /opt/data/ota,
+    (the image library's RESERVED_PATHS, as of 0.8.0: /boot, /etc/fstab, /opt/ota,
     /usr/share/ota): never a slot's, nor inside one.
 
     The parameter set store is among them (a slot over it would hide the set it is
-    laid from), and so is the directory that holds it, /opt/data/ota (in the image
-    library's from its next release), with what otaclient and the platform keep on a
-    partition-based layout's persistent storage (`platform_reserved_paths`): a slot
-    over one of them would hide what the next update needs, on a root it cannot
-    write."""
-    return (
+    laid from), with what the image library reserves from its next release on
+    (`OTA_PLATFORM_PATHS`: /opt/data/ota, which holds the store, /etc/ota and
+    /usr/lib/ota) and what otaclient and the OTA platform keep outside the slots'
+    own files (`platform_reserved_paths`, the DPI this ECU names as it resolves on
+    the host at `host_root`): a slot over one of them would hide what the platform
+    or the next update needs."""
+    _paths = (
         "/proc",
         "/sys",
         "/dev",
@@ -111,10 +120,15 @@ def reserved_paths() -> tuple[str, ...]:
         cfg.OTA_META_STORE,
         cfg.OTA_DOWNLOAD_DIR,
         cfg.PARAMETER_SET_DPATH,
-        os.path.dirname(cfg.PARAMETER_SET_DPATH),
-        *OTA_PLATFORM_PATHS,
-        *platform_reserved_paths(),
+        *platform_reserved_paths(
+            dpi_executable=ecu_info.dpi_executable, host_root=host_root
+        ),
     )
+    return tuple(dict.fromkeys(_paths))
+
+
+def _within(path: str, top: str) -> bool:
+    return path == top or path.startswith(top.rstrip("/") + "/")
 
 
 class OTAUpdaterForParameterSet(OTAUpdateInitializer):
@@ -141,12 +155,16 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         boot_controller: ParameterSetBootControllerProtocol,
         abort_handler: AbortHandler,
         image_identifier: ImageIdentifier,
+        base_committed: bool,
         store: ParameterSetStore | None = None,
         host_root: Path | None = None,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ) -> None:
         super().__init__(**kwargs)
         self._boot_controller = boot_controller
+        # whether the running base is committed: until it is, the platform may still
+        #   fall back to the base a set in the store was applied on
+        self._base_committed = base_committed
         self._abort_handler = abort_handler
         self._image_id = image_identifier
         self._store = store or ParameterSetStore()
@@ -159,7 +177,8 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         )
         self.manifest: ParameterSetManifest | None = None
         self.config: ParameterSetConfig | None = None
-        # the running image's ID, from its version file once the store is checked
+        # the running image's ID, from its version file (`running_image_id`), read
+        #   when the update starts
         self._running_image_id = ""
         self._set_digest: Sha256Digest | None = None
 
@@ -233,11 +252,10 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         checked against the set before, and is refused too.
         """
         assert self.config is not None
-        self._check_the_store()
+        self._check_the_ecu_keeps_the_set()
+        _reserved = reserved_paths(host_root=str(self._host_root))
         try:
-            check_slots_in_tree(
-                self._host_root, self.config.slots, reserved=reserved_paths()
-            )
+            check_slots_in_tree(self._host_root, self.config.slots, reserved=_reserved)
         except ValueError as e:
             raise ota_errors.ParameterSetNotApplicable(
                 f"the running image has no room for the parameter set: {e}",
@@ -245,12 +263,15 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             ) from e
         # the set of another base in a store the slots share was not laid here: it
         #   covers nothing of this base
-        _applied = self._store.applied_record_of(self._running_image_id)
+        _applied = self._store.applied_record_of(
+            self._running_image_id, slot_records=self._boot_controller
+        )
         _covered = [_s.path for _s in _applied.slots] if _applied else []
         for _slot in self.config.slots:
             _of_base = [(_slot.path, "path")]
             if not apply_comes_with_set(_slot, self.config.slots):
                 _of_base.append((_slot.apply, "apply"))
+                self._check_apply_not_reserved(_slot.name, _slot.apply, _reserved)
             for _path, _what in _of_base:
                 _over = next(
                     (_c for _c in _covered if _path.startswith(_c + "/")), None
@@ -269,19 +290,42 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             self._check_mount_point_can_be_made(_slot.name, _slot.path)
         self._note_applies_others_can_change()
 
-    def _check_the_store(self) -> None:
-        """The store is root's alone (nothing is stored where another user could
-        plant a set), and the set it stores can be told to be this base's: a store
-        the slots share needs the running image's ID for that. Refused before
-        anything is written otherwise."""
+    def _check_the_ecu_keeps_the_set(self) -> None:
+        """This ECU can keep the set it is given, and lay it at every boot; refused
+        before anything is written otherwise:
+
+        - the store is root's alone: nothing is stored where another user could plant
+          a set whose `apply` runs as root;
+        - the boot-time unit is enabled on the host: without it, a reboot lays the set
+          only once otaclient starts (or never, with an otaclient that does not know
+          it), while its release is reported all along;
+        - no update staged in this boot may have armed the standby slot: a reboot,
+          the one a set may ask for included, would boot that trial;
+        - a store the slots share can tell the base a set is applied on: the running
+          image has an ID;
+        - the store holds no set of another base the platform may still fall back to:
+          until the running base is committed, that set stays the other base's.
+        """
         if (_why := self._store.why_not_trusted()) is not None:
             raise ota_errors.ParameterSetNotApplicable(
-                f"the parameter set store {self._store.root} is not root's alone: "
-                f"{_why}",
+                f"the parameter set store {self._store.root} cannot be trusted: {_why}",
                 module=__name__,
             )
-        _from_image = load_image_version_detail()
-        self._running_image_id = _from_image.image_id if _from_image else ""
+        if not any(
+            os.path.lexists(os.path.join(self._host_root, _w.lstrip("/")))
+            for _w in BOOT_UNIT_WANTS
+        ):
+            raise ota_errors.ParameterSetNotApplicable(
+                f"{BOOT_UNIT}, which lays the parameter set at boot, is not enabled "
+                f"on this ECU (none of {list(BOOT_UNIT_WANTS)})",
+                module=__name__,
+            )
+        if self._boot_controller.standby_armed_in_this_boot():
+            raise ota_errors.ParameterSetNotApplicable(
+                "an update was staged in this boot and may have armed the standby "
+                "slot for a trial boot: apply the parameter set after the next reboot",
+                module=__name__,
+            )
         if not self._running_image_id and self._store.is_shared():
             raise ota_errors.ParameterSetNotApplicable(
                 f"the running image has no image ID in {cfg.IMAGE_VERSION_FILE_FPATH}, "
@@ -289,6 +333,32 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                 "applied on",
                 module=__name__,
             )
+        _, _why = self._store.whose_set(
+            self._running_image_id, slot_records=self._boot_controller
+        )
+        if _why is not None and not self._base_committed:
+            raise ota_errors.ParameterSetNotApplicable(
+                "the store holds the set of the base this ECU may still fall back to "
+                f"({_why}): apply again once this base is committed",
+                module=__name__,
+            )
+
+    def _check_apply_not_reserved(
+        self, name: str, apply: str, reserved: tuple[str, ...]
+    ) -> None:
+        """An `apply` of the base is not in a path otaclient or the platform uses for
+        itself: what runs there is theirs, not a set's.
+
+        TODO(ota-image-libs>0.8.0): refused by `check_slots_in_tree` from its next
+        release on (with /opt/data/ota, /etc/ota and /usr/lib/ota among its
+        RESERVED_PATHS)."""
+        for _top in (*RESERVED_PATHS, *OTA_PLATFORM_PATHS, *reserved):
+            if _within(apply, _top):
+                raise ota_errors.ParameterSetNotApplicable(
+                    f"slot {name!r}: its apply {apply} is in {_top}, which otaclient "
+                    "or the OTA platform uses for itself",
+                    module=__name__,
+                )
 
     def _check_mount_point_can_be_made(self, name: str, path: str) -> None:
         """A slot directory the running image does not have is made when the slot is
@@ -402,7 +472,9 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         """What the set is, and what it is applied on: the base's own records are
         carried from the set before, or taken from the slot for the first set."""
         assert self.manifest is not None and self.config is not None
-        _before = self._store.applied_record_of(self._running_image_id)
+        _before = self._store.applied_record_of(
+            self._running_image_id, slot_records=self._boot_controller
+        )
         if _before is not None:
             _base_version, _base_detail = (
                 _before.base_version,
@@ -462,6 +534,8 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             f"{self.update_version=}, {self.release_name=}, {self.release_id=}"
         )
         _cond = threading.Condition()
+        # whether this update made the staging, which then goes at its end
+        _staged = False
         try:
             # ------ metadata ------ #
             _now = self._report_phase(UpdatePhase.PROCESSING_METADATA)
@@ -475,6 +549,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                 )
                 self._download(self._metadata(_cond), _cond)
             assert self.manifest is not None and self.config is not None
+            self._running_image_id = running_image_id()
             self._check_fits_the_running_base()
             logger.info(
                 f"parameter set {self.config.name} {self.config.version}: slots "
@@ -489,6 +564,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             _now = self._report_phase(UpdatePhase.DOWNLOADING_OTA_FILES)
             self._metrics.download_start_timestamp = _now
             _staging = self._store.prepare_staging()
+            _staged = True
             _layer_f = self._session_workdir / LAYER_FNAME
             if self.manifest.layer is not None:
                 try:
@@ -510,8 +586,11 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
 
             # from the switch on, the slot changes: no abort, as at a reboot
             self._abort_handler.enter_final_phase()
-            # a set of another base the store holds is replaced, not the set before
-            self._store.set_aside_another_bases_set(self._running_image_id)
+            # a set of another base the store holds (this base committed: checked
+            #   before) is replaced, not the set before
+            self._store.set_aside_another_bases_set(
+                self._running_image_id, slot_records=self._boot_controller
+            )
             try:
                 _reboot = self._store.switch()
             except ParameterSetFailed as e:
@@ -553,7 +632,8 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                 raise
             raise _err from e
         finally:
-            self._store.discard_staging()
+            if _staged:
+                self._store.discard_staging()
             self._downloader_pool.release_instance()
             self._downloader_pool.shutdown()
             shutil.rmtree(self._session_workdir, ignore_errors=True)

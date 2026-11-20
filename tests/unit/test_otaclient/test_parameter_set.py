@@ -34,6 +34,7 @@ from pytest_mock import MockerFixture
 
 from otaclient import parameter_set
 from otaclient._types import VersionDetail
+from otaclient.boot_control import _image_version_file
 from otaclient.parameter_set import (
     HISTORY_MAX_SIZE,
     TREE_DNAME,
@@ -46,8 +47,9 @@ from otaclient.parameter_set import (
     on_the_active_root_filesystem,
     run_apply,
     run_command,
-    why_not_roots_alone,
+    why_not_private,
 )
+from otaclient_common import _io
 
 PARAMS = ParameterSlot(
     name="individual_params",
@@ -131,16 +133,22 @@ class FakeSlotRecords:
 
 
 @pytest.fixture(autouse=True)
-def the_way_is_checked_from_tmp_path(tmp_path: Path, mocker: MockerFixture):
-    """The way to a store is checked from tmp_path down, which stands in for /: the
-    real way to tmp_path has /tmp on it, which everyone can write."""
-    mocker.patch.object(
-        parameter_set,
-        "why_not_roots_alone",
-        side_effect=lambda path, top=None: why_not_roots_alone(
-            path, top=top or tmp_path
-        ),
+def tmp_path_is_a_mount_point(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The way to a store is checked from the mount point it is on down, and the real
+    mount point of tmp_path has /tmp on the way, which everyone can write: here
+    tmp_path, private to us, stands in for it. What a test makes there is made under
+    the umask otaclient runs under, systemd's."""
+    _real = _io._mount_point_of
+    monkeypatch.setattr(
+        _io,
+        "_mount_point_of",
+        lambda _p: tmp_path if tmp_path in (_p, *_p.parents) else _real(_p),
     )
+    _old_umask = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(_old_umask)
 
 
 @pytest.fixture(autouse=True)
@@ -715,8 +723,12 @@ class TestAtStartup:
         running: str,
         applied_on: str,
     ):
-        """A set copied in with the slot: the slot's records are the new image's."""
+        """A set copied in with the slot: the slot's records are the new image's. It
+        was never laid on this base: what is mounted at its slots' paths is this
+        base's own, and stays."""
         _record = apply_set(store, PARAMS, base_image_id=applied_on)
+        reboot(mounter)
+        mounter.mounted[PARAMS.path] = (Path("/the/base/own"), 0)
         runner.ran.clear()
         _records = self.records_of(_record)
         assert (
@@ -725,7 +737,7 @@ class TestAtStartup:
         )
         assert _records.version == _record.firmware_version
         assert store.applied_record() is None
-        assert mounter.mounted == {}
+        assert mounter.mounted == {PARAMS.path: (Path("/the/base/own"), 0)}
         assert runner.ran == []
         assert "was applied on image" in history(store)[-1]["reason"]
 
@@ -920,15 +932,20 @@ class TestAtStartup:
     def test_a_drop_whose_mount_cannot_go_leaves_nothing_to_mount_at_boot(
         self, store: ParameterSetStore, mounter: FakeMounter
     ):
-        _record = apply_set(store, PARAMS)
+        """A slot cannot be mounted: the set is dropped, and the mount of the slot
+        that was cannot be taken away. The set left applied/ first: the next boot
+        lays nothing."""
+        _record = apply_set(store, PARAMS, LAUNCH)
+        del mounter.mounted[LAUNCH.path]
+        mounter.fail_mount = True
         mounter.fail_umount = True
         store.check_at_startup(
-            "another-image", base_committed=True, slot_records=self.records_of(_record)
+            BASE_ID, base_committed=True, slot_records=self.records_of(_record)
         )
         assert "drop_failed" in events(store)
         assert store.applied_record() is None
         reboot(mounter)
-        mounter.fail_umount = False
+        mounter.fail_mount = mounter.fail_umount = False
         assert store.mount_at_boot(BASE_ID) is True
         assert mounter.mounted == {}
 
@@ -972,11 +989,14 @@ class TestAtStartup:
     def test_a_dropped_set_whose_unmount_fails_is_not_laid_again(
         self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
     ):
-        _record = apply_set(store, PARAMS)
+        _record = apply_set(store, PARAMS, LAUNCH)
+        del mounter.mounted[LAUNCH.path]
+        mounter.fail_mount = True
         mounter.fail_umount = True
         store.check_at_startup(
-            "another-image", base_committed=True, slot_records=self.records_of(_record)
+            BASE_ID, base_committed=True, slot_records=self.records_of(_record)
         )
+        mounter.fail_mount = False
         assert "drop_failed" in events(store)
         assert store.applied_record() is None
         # the next start: nothing to lay
@@ -1118,9 +1138,9 @@ class TestHistory:
         """The store is the slot's own: the new slot gets the history only."""
         _record = apply_set(store, PARAMS)
         _standby = tmp_path / "standby"
-        (_standby / "opt").mkdir(parents=True)
+        (_standby / "opt").mkdir(mode=0o755, parents=True)
 
-        store.carry_history_to(_standby, reason="full OTA to 2.0.0")
+        store.carry_history_to(_standby, to_version="2.0.0")
 
         on_the_slots_own_root.assert_called_once_with(store.root)
         _store = _standby / "opt/data/ota/parameter-set"
@@ -1129,12 +1149,29 @@ class TestHistory:
         ]
         assert [_e["event"] for _e in _events] == ["applied", "left_behind"]
         assert _events[-1]["set"] == _record.set_manifest_digest
+        assert _events[-1]["reason"] == "full OTA to 2.0.0"
         assert _events[-1]["shared"] is False
         assert not (_store / "applied").exists()
         assert stat.S_IMODE(_store.stat().st_mode) == 0o700
         for _made in (_standby / "opt/data", _standby / "opt/data/ota"):
             assert stat.S_IMODE(_made.stat().st_mode) == 0o755
         assert events(store)[-1] == "applied", "the running slot's is not touched"
+        assert not (store.root / "base-change-staged.json").exists()
+
+    def test_a_link_on_the_way_in_the_new_slot_is_not_followed(
+        self, store: ParameterSetStore, tmp_path: Path
+    ):
+        """The new image has /opt/data as a link: the history is not copied through
+        it, wherever it points."""
+        apply_set(store, PARAMS)
+        _standby = tmp_path / "standby"
+        (_standby / "opt").mkdir(mode=0o755, parents=True)
+        (tmp_path / "elsewhere").mkdir(mode=0o755)
+        (_standby / "opt/data").symlink_to(tmp_path / "elsewhere")
+
+        store.carry_history_to(_standby, to_version="2.0.0")
+
+        assert list((tmp_path / "elsewhere").iterdir()) == []
 
     def test_a_shared_store_stays_where_it_is_and_says_so(
         self, store: ParameterSetStore, tmp_path: Path, on_the_slots_own_root
@@ -1145,9 +1182,12 @@ class TestHistory:
         _record = apply_set(store, PARAMS)
         _standby = tmp_path / "standby"
 
-        store.carry_history_to(_standby, reason="full OTA to 2.0.0")
+        store.carry_history_to(_standby, to_version="2.0.0")
 
         assert not _standby.exists()
+        # the new slot may run the same image: the mark says a full update was staged
+        _staged = json.loads((store.root / "base-change-staged.json").read_text())
+        assert _staged["to_version"] == "2.0.0"
         _left = history(store)[-1]
         assert _left["event"] == "left_behind"
         assert _left["shared"] is True
@@ -1162,11 +1202,21 @@ class TestHistory:
             is None
         )
         assert events(store)[-1] == "dropped"
+        assert not (store.root / "base-change-staged.json").exists()
+
+    def test_a_new_slot_written_as_an_image_keeps_the_set_where_it_is(
+        self, store: ParameterSetStore
+    ):
+        """A partition-based layout: no root to copy into, the store stays."""
+        apply_set(store, PARAMS)
+        store.carry_history_to(None, to_version="3.0.0")
+        assert history(store)[-1]["shared"] is True
+        assert (store.root / "base-change-staged.json").exists()
 
     def test_a_slot_that_never_had_a_set_carries_nothing(
         self, store: ParameterSetStore, tmp_path: Path, on_the_slots_own_root
     ):
-        store.carry_history_to(tmp_path / "standby", reason="full OTA")
+        store.carry_history_to(tmp_path / "standby", to_version="2.0.0")
         assert not (tmp_path / "standby").exists()
         assert not store.root.exists()
 
@@ -1176,7 +1226,7 @@ class TestHistory:
         """From the nearest of the store and its parents that exists, against the
         running slot's root: the host's from an app image."""
         _host = tmp_path / "host_root"
-        _host.mkdir()
+        _host.mkdir(mode=0o755)
         _chroot = mocker.patch.object(
             parameter_set._env, "get_dynamic_client_chroot_path", return_value=None
         )
@@ -1400,7 +1450,7 @@ class TestAtBoot:
         assert runner.ran == [], "what reads the slots has not started yet"
         _event = history(store)[-1]
         assert _event["event"] == "mounted_at_boot"
-        assert _event["set"] == _record.set_manifest_digest
+        assert _event["set_manifest_digest"] == _record.set_manifest_digest
         assert _event["mounted"] == [PARAMS.name, LAUNCH.name]
         assert _event["failed"] == {}
         # otaclient's start finds every slot mounted: no apply, no remount
@@ -1524,9 +1574,10 @@ class TestTheCommand:
     @pytest.fixture
     def app_image(self, tmp_path: Path, mocker: MockerFixture) -> Path:
         """An app image: the host's root at its chroot path, mounts through the
-        host's mount namespace. The store is at its path, as the unit binds /opt."""
+        host's mount namespace. The store is the host's, at the path the unit binds
+        /opt to: here, the host's own path in the test's tree."""
         _host = tmp_path / "host_root"
-        (_host / "usr/share/ota").mkdir(parents=True)
+        (_host / "usr/share/ota").mkdir(mode=0o755, parents=True)
         (_host / "usr/share/ota/version.json").write_text(
             json.dumps({"schema_version": 1, "image_id": BASE_ID})
         )
@@ -1541,27 +1592,31 @@ class TestTheCommand:
         mocker.patch.object(
             parameter_set.cfg,
             "PARAMETER_SET_DPATH",
-            str(tmp_path / "opt/data/ota/parameter-set"),
+            str(_host / "opt/data/ota/parameter-set"),
         )
         return _host
+
+    @staticmethod
+    def applied_on_the_host(host: Path) -> ParameterSetStore:
+        _store = ParameterSetStore(
+            root=host / "opt/data/ota/parameter-set",
+            mounter=FakeMounter(),
+            runner=FakeRunner(),
+        )
+        apply_set(_store, PARAMS)
+        return _store
 
     def test_the_set_is_mounted_in_the_hosts_namespace(
         self, tmp_path: Path, app_image: Path, mocker: MockerFixture
     ):
         """What it reads is the host's (the version file, the slot's path), what it
-        runs goes to the host's mount namespace, and no apply runs."""
-        apply_set(
-            ParameterSetStore(
-                root=tmp_path / "opt/data/ota/parameter-set",
-                mounter=FakeMounter(),
-                runner=FakeRunner(),
-            ),
-            PARAMS,
-        )
+        runs goes to the host's mount namespace, bounded, and no apply runs."""
+        _store = self.applied_on_the_host(app_image)
         _ran: list[list[str]] = []
 
         def _run(cmd, **kwargs):
             assert kwargs["set_host_mnt_ns"] is True
+            assert kwargs["timeout"] == parameter_set.MOUNT_COMMAND_TIMEOUT
             assert "chroot" not in kwargs
             _ran.append(cmd)
             if cmd[0] == "findmnt":
@@ -1571,9 +1626,7 @@ class TestTheCommand:
 
         assert parameter_set.mount_parameter_set_command() == 0
 
-        _tree = str(
-            tmp_path / "opt/data/ota/parameter-set/applied/tree" / PARAMS.relpath
-        )
+        _tree = str(_store.tree_of(PARAMS))
         assert _ran == [
             ["findmnt", "--noheadings", "--mountpoint", PARAMS.path],
             ["mount", "--bind", _tree, PARAMS.path],
@@ -1582,20 +1635,22 @@ class TestTheCommand:
         # the mount point was made on the host
         assert (app_image / PARAMS.relpath).is_dir()
 
+    def test_a_store_others_can_change_lays_nothing_and_fails(
+        self, app_image: Path, mocker: MockerFixture
+    ):
+        _store = self.applied_on_the_host(app_image)
+        _store.root.parent.chmod(0o777)
+        _run = mocker.patch.object(parameter_set, "subprocess_run_wrapper")
+        assert parameter_set.mount_parameter_set_command() == 1
+        _run.assert_not_called()
+
     def test_a_set_of_another_image_mounts_nothing(
-        self, tmp_path: Path, app_image: Path, mocker: MockerFixture
+        self, app_image: Path, mocker: MockerFixture
     ):
         (app_image / "usr/share/ota/version.json").write_text(
             json.dumps({"schema_version": 1, "image_id": "another-image"})
         )
-        apply_set(
-            ParameterSetStore(
-                root=tmp_path / "opt/data/ota/parameter-set",
-                mounter=FakeMounter(),
-                runner=FakeRunner(),
-            ),
-            PARAMS,
-        )
+        self.applied_on_the_host(app_image)
         _run = mocker.patch.object(parameter_set, "subprocess_run_wrapper")
         assert parameter_set.mount_parameter_set_command() == 0
         _run.assert_not_called()
@@ -1792,7 +1847,9 @@ class TestAnotherBasesSet:
     ):
         """A new set on B: every slot of it is applied (nothing compared with A's),
         and when it fails, B goes back to its defaults, not to A's set."""
-        store.set_aside_another_bases_set(self.B)
+        store.set_aside_another_bases_set(
+            self.B, slot_records=FakeSlotRecords("2.0.0", None)
+        )
         assert store.applied_record() is None
         assert events(store)[-1] == "dropped"
 
@@ -1808,12 +1865,148 @@ class TestAnotherBasesSet:
         self, store: ParameterSetStore, shared
     ):
         _record = apply_set(store, PARAMS, base_image_id=self.B)
-        store.set_aside_another_bases_set(self.B)
+        store.set_aside_another_bases_set(self.B, slot_records=self.records_of(_record))
         assert store.applied_record() == _record
+
+    def test_an_unreadable_set_is_not_the_set_before_either(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner, shared
+    ):
+        """Whose it is cannot be told: set aside, and a new set that fails goes back
+        to the base's defaults."""
+        apply_set(store, PARAMS, base_image_id=self.B)
+        (store.applied_dir / "record.json").write_text("{")
+        reboot(mounter)
+        runner.ran.clear()
+        store.set_aside_another_bases_set(
+            self.B, slot_records=FakeSlotRecords("2.0.0", None)
+        )
+        assert not store.applied_dir.exists()
+        assert "unreadable" in history(store)[-1]["reason"]
+
+        stage(store, PARAMS, content="v2", base_image_id=self.B)
+        runner.fail_times = 1
+        with pytest.raises(ParameterSetFailed) as _e:
+            store.switch()
+        assert _e.value.restored
+        assert runner.ran == [PARAMS.apply]
+        assert store.applied_record() is None and mounter.mounted == {}
+
+    def test_a_newer_schema_is_not_laid_at_boot(
+        self, store: ParameterSetStore, mounter: FakeMounter, shared
+    ):
+        """Its fields may mean what this otaclient does not know: left to the start
+        of the otaclient that runs."""
+        _record = apply_set(store, PARAMS, base_image_id=self.B)
+        reboot(mounter)
+        (store.applied_dir / "record.json").write_text(
+            _record.model_copy(update={"schema_version": 2}).model_dump_json()
+        )
+        assert store.mount_at_boot(self.B) is True
+        assert mounter.mounted == {}
+
+
+class TestTheSameImageAgain:
+    """A full update installs, in the other slot, the very image a set in a store the
+    slots share was applied on (the base release delivered again, to clear the set):
+    the image ID cannot tell the two slots apart, the mark of the staged full update
+    and the slot's records do."""
+
+    X = "image-x"
+
+    @pytest.fixture
+    def staged(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        on_the_slots_own_root,
+    ) -> AppliedRecord:
+        """S applied on slot A over X; a full update to X staged from A; the reboot."""
+        on_the_slots_own_root.return_value = False
+        _record = apply_set(store, PARAMS, base_image_id=self.X)
+        store.carry_history_to(None, to_version="2.0.0")
+        reboot(mounter)
+        runner.ran.clear()
+        return _record
+
+    @staticmethod
+    def new_slots_records() -> FakeSlotRecords:
+        return FakeSlotRecords("2.0.0", VersionDetail(image_id="image-x"))
+
+    @staticmethod
+    def records_of(record: AppliedRecord) -> FakeSlotRecords:
+        return FakeSlotRecords(
+            record.firmware_version, VersionDetail(image_id=record.image_id)
+        )
+
+    def test_the_boot_lays_nothing_while_a_full_update_is_staged(
+        self, store: ParameterSetStore, mounter: FakeMounter, staged: AppliedRecord
+    ):
+        _history = store.history_file.read_text()
+        assert store.mount_at_boot(self.X) is True
+        assert mounter.mounted == {}
+        assert store.history_file.read_text() == _history
+
+    def test_the_new_slot_committed_drops_it(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        staged: AppliedRecord,
+    ):
+        _records = self.new_slots_records()
+        assert (
+            store.check_at_startup(self.X, slot_records=_records, base_committed=True)
+            is None
+        )
+        assert store.applied_record() is None and mounter.mounted == {}
+        assert not store.base_change_staged()
+        assert runner.ran == []
+        assert _records.version == "2.0.0", "the new slot reports its own base"
+        assert "this slot does not record" in history(store)[-1]["reason"]
+
+    def test_the_new_slot_not_committed_keeps_it_and_the_mark(
+        self, store: ParameterSetStore, mounter: FakeMounter, staged: AppliedRecord
+    ):
+        assert (
+            store.check_at_startup(
+                self.X, slot_records=self.new_slots_records(), base_committed=False
+            )
+            is None
+        )
+        assert store.applied_record() == staged and mounter.mounted == {}
+        assert store.base_change_staged()
+
+    def test_the_slot_it_was_applied_on_lays_and_applies_it(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        staged: AppliedRecord,
+    ):
+        """A fell back (or never switched): it still records S's release. The boot
+        laid nothing, so what reads the slots runs with the defaults: S is laid and
+        its slots applied, and the mark goes."""
+        assert store.mount_at_boot(self.X) is True
+        assert (
+            store.check_at_startup(
+                self.X, slot_records=self.records_of(staged), base_committed=False
+            )
+            == staged
+        )
+        assert mounter.shows(PARAMS.path, store.tree_of(PARAMS))
+        assert runner.ran == [PARAMS.apply]
+        assert not store.base_change_staged()
+        assert "base_change_not_taken" in events(store)
+        # the next boot lays it again, as any
+        reboot(mounter)
+        assert store.mount_at_boot(self.X) is True
+        assert mounter.shows(PARAMS.path, store.tree_of(PARAMS))
 
 
 class TestTheStoreIsRoots:
-    """Every directory from / (tmp_path here) down to the store is root's alone."""
+    """Every directory from the mount point the store is on (tmp_path here) down to
+    the store is root's alone."""
 
     @pytest.mark.parametrize(
         "spoil, match",
@@ -1823,7 +2016,12 @@ class TestTheStoreIsRoots:
                 lambda d: d.chmod(0o775), "mode 775", id="the_group_can_write"
             ),
             pytest.param(
-                lambda d: os.chown(d, 1000, 1000), "owner uid 1000", id="not_roots"
+                lambda d: os.chown(d, 1000, 1000),
+                "owner uid 1000",
+                id="not_roots",
+                marks=pytest.mark.skipif(
+                    os.geteuid() != 0, reason="giving a directory away takes root"
+                ),
             ),
         ),
     )
@@ -1831,43 +2029,58 @@ class TestTheStoreIsRoots:
         self, tmp_path: Path, spoil, match: str
     ):
         _store = tmp_path / "opt/data/ota/parameter-set"
-        parameter_set.make_store_dir(_store)
-        assert why_not_roots_alone(_store, top=tmp_path) is None, "as made: root's"
+        _io.ensure_private_dir(_store, mode=0o700)
+        assert why_not_private(_store) is None, "as made: root's"
         spoil(tmp_path / "opt/data")
-        _why = why_not_roots_alone(_store, top=tmp_path)
+        _why = why_not_private(_store)
         assert _why is not None and match in _why
         assert str(tmp_path / "opt/data") in _why
 
     def test_a_link_on_the_way(self, tmp_path: Path):
-        (tmp_path / "elsewhere/ota").mkdir(parents=True)
-        (tmp_path / "opt").mkdir()
+        (tmp_path / "elsewhere/ota").mkdir(mode=0o755, parents=True)
+        (tmp_path / "opt").mkdir(mode=0o755)
         (tmp_path / "opt/data").symlink_to(tmp_path / "elsewhere")
-        _why = why_not_roots_alone(
-            tmp_path / "opt/data/ota/parameter-set", top=tmp_path
-        )
-        assert _why == f"{tmp_path / 'opt/data'} is a symbolic link"
-
-    def test_from_an_app_image_the_way_is_the_hosts(
-        self, tmp_path: Path, mocker: MockerFixture
-    ):
-        """The store at its path in the app image (/opt bound from the host) is the
-        host's: looked at from the host's /, where the other users are."""
-        _host = tmp_path / "host_root"
-        parameter_set.make_store_dir(_host / "opt/data/ota/parameter-set")
-        mocker.patch.object(
-            parameter_set._env,
-            "get_dynamic_client_chroot_path",
-            return_value=str(_host),
-        )
-        _store = ParameterSetStore(root=Path("/opt/data/ota/parameter-set"))
-        assert _store.why_not_trusted() is None
-        (_host / "opt/data").chmod(0o777)
-        _why = _store.why_not_trusted()
-        assert _why is not None and str(_host / "opt/data") in _why
+        _why = why_not_private(tmp_path / "opt/data/ota/parameter-set")
+        assert _why == f"{tmp_path / 'opt/data'} is a symlink"
 
     def test_what_is_not_there_yet_is_not_looked_at(self, tmp_path: Path):
         (tmp_path / "opt").mkdir(mode=0o755)
-        assert why_not_roots_alone(tmp_path / "opt/data/ota/x", top=tmp_path) is None
+        assert why_not_private(tmp_path / "opt/data/ota/x") is None
+
+    def test_what_otaclient_makes_is_made_with_its_modes(self, tmp_path: Path):
+        """/opt/data and /opt/data/ota 0755, the store 0700, whatever the umask."""
+        (tmp_path / "opt").mkdir(mode=0o750)
+        _umask = os.umask(0o077)
+        try:
+            ParameterSetStore(
+                root=tmp_path / "opt/data/ota/parameter-set"
+            ).record_event("made")
+        finally:
+            os.umask(_umask)
+        assert (
+            stat.S_IMODE((tmp_path / "opt/data/ota/parameter-set").stat().st_mode)
+            == 0o700
+        )
+        for _made in ("opt/data", "opt/data/ota"):
+            assert stat.S_IMODE((tmp_path / _made).stat().st_mode) == 0o755
+        assert stat.S_IMODE((tmp_path / "opt").stat().st_mode) == 0o750
+
+    def test_the_release_of_a_set_not_laid_is_not_reported(
+        self, store: ParameterSetStore, mocker: MockerFixture
+    ):
+        """The slot reports its base, not the release of a set it does not lay."""
+        _record = apply_set(store, PARAMS)
+        mocker.patch.object(
+            _image_version_file, "ParameterSetStore", return_value=store
+        )
+        _recorded = VersionDetail(release_name="r", image_id=_record.image_id)
+        assert _image_version_file._release_of_the_applied_parameter_set(
+            _recorded, BASE_ID
+        )
+        store.root.parent.chmod(0o777)
+        assert not _image_version_file._release_of_the_applied_parameter_set(
+            _recorded, BASE_ID
+        )
 
     @pytest.fixture
     def planted(

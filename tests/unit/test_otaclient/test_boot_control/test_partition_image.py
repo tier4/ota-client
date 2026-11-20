@@ -271,6 +271,22 @@ class TestParameterSets:
         assert _ctrl.load_version() == "2.9.0"
         assert _ctrl.load_recorded_version() == ("", None)
 
+    def test_an_update_staged_in_this_boot_may_have_armed_the_standby(
+        self, tmp_path: Path, this_boot
+    ):
+        """A full update that failed after the DPI armed the standby: the next
+        reboot boots the trial, so no set is taken until it has happened."""
+        _ctrl = make_controller(tmp_path)
+        assert _ctrl.standby_armed_in_this_boot() is False
+        _ctrl.pre_update(standby_as_ref=False, erase_standby=True)
+        assert _ctrl.standby_armed_in_this_boot() is True
+
+    def test_an_update_staged_before_this_boot_is_concluded(
+        self, tmp_path: Path, this_boot
+    ):
+        an_update_was_staged_in(tmp_path, "boot-0")
+        assert make_controller(tmp_path).standby_armed_in_this_boot() is False
+
     def test_a_dropped_set_gives_the_slot_its_base_records_back(self, tmp_path: Path):
         _ctrl = make_controller(tmp_path)
         _base = VersionDetail(release_name="3.0.0", release_id="r", image_id="base")

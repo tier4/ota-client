@@ -235,9 +235,9 @@ def ensure_private_dir(
     point does not matter: a mount point cannot be renamed or replaced but by root.
 
     What is missing is created as it is reached, after everything above it passed:
-    <path> itself with <mode>, a directory on the way to it with 0o755, neither
-    group- or world-writable whatever the umask. With <create> False the check stops
-    at the first component that does not exist, and nothing is created.
+    <path> itself with <mode>, a directory on the way to it with 0o755, whatever the
+    umask (only what is created here is chmod'ed). With <create> False the check
+    stops at the first component that does not exist, and nothing is created.
 
     Returns:
         <path>, made absolute.
@@ -263,8 +263,10 @@ def ensure_private_dir(
         except FileNotFoundError:
             if not create:
                 break
+            _mode = mode if _dir == _path else 0o755
             try:
-                os.mkdir(_dir, mode if _dir == _path else 0o755)
+                os.mkdir(_dir, 0o700)
+                os.chmod(_dir, _mode)
             except FileExistsError:
                 pass  # made meanwhile, by whoever could: checked as it is
             _st = os.lstat(_dir)

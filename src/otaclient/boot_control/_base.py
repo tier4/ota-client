@@ -101,6 +101,11 @@ class BootControllerBase(ABC):
             version=version, version_detail=version_detail
         )
 
+    def standby_armed_in_this_boot(self) -> bool:
+        """The standby slot is switched to by post_update, which a failed update
+        leaves undone (or undoes), never by itself before a reboot: False."""
+        return False
+
     def reboot_current_slot(self) -> NoReturn:
         """Reboot into the slot that runs now: a plain reboot, as nothing was switched
         (a parameter set whose changed slot's `apply` is `reboot`)."""

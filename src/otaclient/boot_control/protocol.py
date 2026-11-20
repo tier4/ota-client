@@ -240,6 +240,13 @@ class ParameterSetBootControllerProtocol(Protocol):
         """Persist a failure (and the status FAILURE) to the current slot."""
 
     @abstractmethod
+    def standby_armed_in_this_boot(self) -> bool:
+        """Whether an update staged in this boot may have armed the standby slot for
+        a trial boot (a full update that failed after that): any reboot from
+        now on may boot it, so no parameter set is taken until one has
+        happened."""
+
+    @abstractmethod
     def reboot_current_slot(self) -> NoReturn:
         """Reboot into the slot that runs now, with no slot switch: what a parameter
             set whose changed slot's `apply` is `reboot` ends with, once its SUCCESS is

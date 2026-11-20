@@ -119,6 +119,8 @@ class TestBootControllerBase:
 
     def test_it_takes_a_parameter_set(self, controller):
         assert isinstance(controller, ParameterSetBootControllerProtocol)
+        # the standby is switched to by post_update only, never armed before it
+        assert controller.standby_armed_in_this_boot() is False
 
     def test_the_same_slot_is_rebooted_by_a_plain_reboot(
         self, controller, mocker: MockerFixture

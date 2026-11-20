@@ -67,8 +67,8 @@ from otaclient.parameter_set import (
     AppliedRecord,
     ParameterSetStore,
     RecordedSlot,
-    why_not_roots_alone,
 )
+from otaclient_common import _io
 
 PARAMS = ParameterSlot(
     name="individual_params",
@@ -217,10 +217,16 @@ class FakeAbortHandler:
 def host_root(tmp_path: Path) -> Path:
     """The running image: the slot's directory with its defaults, and the apply."""
     _root = tmp_path / "host_root"
-    (_root / PARAMS.relpath / "default").mkdir(parents=True)
+    (_root / PARAMS.relpath / "default").mkdir(mode=0o755, parents=True)
     _apply = _root / PARAMS.apply[1:]
     _apply.write_text("#!/bin/sh\n")
     _apply.chmod(0o755)
+    # the boot-time unit, enabled
+    _wants = _root / "etc/systemd/system/local-fs.target.wants"
+    _wants.mkdir(mode=0o755, parents=True)
+    (_wants / "otaclient-parameter-set.service").symlink_to(
+        "/etc/systemd/system/otaclient-parameter-set.service"
+    )
     return _root
 
 
@@ -240,27 +246,27 @@ def boot_controller(mocker: MockerFixture):
         "1.0.0",
         VersionDetail(release_name="base", release_id="b", image_id="base-image"),
     )
+    _bc.standby_armed_in_this_boot.return_value = False
     return _bc
 
 
 @pytest.fixture(autouse=True)
 def running_image(mocker: MockerFixture):
+    """The running image's ID, from its version file."""
     return mocker.patch.object(
-        _parameter_set,
-        "load_image_version_detail",
-        return_value=VersionDetail(image_id="base-image"),
+        _parameter_set, "running_image_id", return_value="base-image"
     )
 
 
 @pytest.fixture(autouse=True)
-def the_way_is_checked_from_tmp_path(tmp_path: Path, mocker: MockerFixture):
-    """tmp_path stands in for /: the real way to it has /tmp on it."""
-    mocker.patch.object(
-        parameter_set,
-        "why_not_roots_alone",
-        side_effect=lambda path, top=None: why_not_roots_alone(
-            path, top=top or tmp_path
-        ),
+def tmp_path_is_a_mount_point(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The way to the store is checked from its mount point: tmp_path stands in for
+    it, as the real one has /tmp on the way, which everyone can write."""
+    _real = _io._mount_point_of
+    monkeypatch.setattr(
+        _io,
+        "_mount_point_of",
+        lambda _p: tmp_path if tmp_path in (_p, *_p.parents) else _real(_p),
     )
 
 
@@ -282,12 +288,14 @@ def make_updater(
     host_root,
     boot_controller,
     abort_handler: FakeAbortHandler | None = None,
+    base_committed: bool = True,
 ) -> OTAUpdaterForParameterSet:
     from otaclient_common.downloader import DownloaderPool
 
     _updater = OTAUpdaterForParameterSet(
         ca_store=CAStoreMap(),
         boot_controller=boot_controller,
+        base_committed=base_committed,
         abort_handler=abort_handler or FakeAbortHandler(),  # type: ignore[arg-type]
         image_identifier=THIS_ECU,
         store=store,
@@ -578,6 +586,10 @@ class TestParameterSetUpdate:
             "/opt/data/ota-client",
             "/opt/data/ota-du",
             "/opt/data/ota-health",
+            "/opt/data/appdata",
+            "/opt/data/bulk/x",
+            "/usr/local/lib/rootfs-ua/x",
+            "/usr/local/sbin",
         ),
     )
     def test_a_slot_over_what_otaclient_uses_for_itself_is_refused(
@@ -1083,7 +1095,6 @@ class TestRebootForApply:
             side_effect=lambda: _order.waited(),
         )
         mocker.patch.object(_parameter_set.time, "sleep")
-        assert not hasattr(_parameter_set, "cmdhelper")
 
         with pytest.raises(SystemExit):
             _updater.reboot_for_apply()
@@ -1104,7 +1115,7 @@ class TestTheStore:
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
         )
         with pytest.raises(
-            ota_errors.ParameterSetNotApplicable, match="not root's alone"
+            ota_errors.ParameterSetNotApplicable, match="cannot be trusted"
         ) as _e:
             make_updater(
                 tmp_path,
@@ -1129,7 +1140,7 @@ class TestTheStore:
         running_image,
         on_the_slots_own_root,
     ):
-        running_image.return_value = None
+        running_image.return_value = ""
         on_the_slots_own_root.return_value = False
         _blobs, _index = parameter_image(
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
@@ -1153,7 +1164,7 @@ class TestTheStore:
     def test_a_store_of_the_slots_own_takes_a_base_without_an_id(
         self, tmp_path: Path, store, host_root, boot_controller, running_image
     ):
-        running_image.return_value = None
+        running_image.return_value = ""
         _blobs, _index = parameter_image(
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
         )
@@ -1181,7 +1192,7 @@ class TestTheStore:
         in any window before the drop. A set applied on B is compared with nothing,
         and when its apply fails B goes back to its defaults, A's set never laid."""
         on_the_slots_own_root.return_value = False
-        running_image.return_value = VersionDetail(image_id="image-a")
+        running_image.return_value = "image-a"
         _blobs, _index = parameter_image(
             tmp_path / "image-a", tree=set_tree(tmp_path / "tree-a", "a: 1\n")
         )
@@ -1196,7 +1207,7 @@ class TestTheStore:
         # the reboot into B
         store._mounter.mounted.clear()  # type: ignore[attr-defined]
         store._runner.ran.clear()  # type: ignore[attr-defined]
-        running_image.return_value = VersionDetail(image_id="image-b")
+        running_image.return_value = "image-b"
         boot_controller.load_recorded_version.return_value = (
             "2.0.0",
             VersionDetail(image_id="image-b"),
@@ -1222,3 +1233,232 @@ class TestTheStore:
             if '"dropped"' in _l
         ]
         assert _dropped[-1]["set_manifest_digest"] == _a.set_manifest_digest
+
+
+def an_updater_with_slots(
+    tmp_path: Path, store, host_root, boot_controller, *slots: ParameterSlot, **kw
+) -> OTAUpdaterForParameterSet:
+    """An updater whose config is `slots`, as checked against the running base."""
+    _updater = make_updater(
+        tmp_path,
+        blobs=tmp_path,
+        index=ImageIndex(
+            manifests=[],
+            annotations=ImageIndex.Annotations.model_validate(
+                {BUILD_TOOL_VERSION: "t"}
+            ),
+        ),
+        store=store,
+        host_root=host_root,
+        boot_controller=boot_controller,
+        **kw,
+    )
+    _updater.config = ParameterSetConfig(
+        name="p",
+        version="1",
+        slots=list(slots),
+        diff_ids=[Sha256Digest("1" * 64)],
+    )
+    return _updater
+
+
+class TestWhatTheEcuNeeds:
+    def test_a_set_is_refused_without_the_boot_time_unit(
+        self, tmp_path: Path, store, host_root, boot_controller
+    ):
+        """It would not be laid at boot while its release is reported."""
+        (
+            host_root
+            / "etc/systemd/system/local-fs.target.wants/otaclient-parameter-set.service"
+        ).unlink()
+        with pytest.raises(
+            ota_errors.ParameterSetNotApplicable, match="is not enabled"
+        ) as _e:
+            an_updater_with_slots(
+                tmp_path, store, host_root, boot_controller, PARAMS
+            )._check_fits_the_running_base()
+        assert _e.value.get_failure_reason().startswith("E463: ")
+
+    @pytest.mark.parametrize(
+        "where", ("usr/lib/systemd/system", "lib/systemd/system", "etc/systemd/system")
+    )
+    def test_the_unit_enabled_in_the_image_or_by_the_platform(
+        self, tmp_path: Path, store, host_root, boot_controller, where: str
+    ):
+        shutil.rmtree(host_root / "etc/systemd")
+        _wants = host_root / where / "local-fs.target.wants"
+        _wants.mkdir(mode=0o755, parents=True)
+        (_wants / "otaclient-parameter-set.service").symlink_to(
+            f"/{where}/otaclient-parameter-set.service"
+        )
+        an_updater_with_slots(
+            tmp_path, store, host_root, boot_controller, PARAMS
+        )._check_fits_the_running_base()
+
+    def test_a_set_is_refused_while_the_standby_may_be_armed(
+        self, tmp_path: Path, store, host_root, boot_controller
+    ):
+        """A full update staged in this boot: the next reboot, the one a set asks
+        for included, would boot its trial."""
+        boot_controller.standby_armed_in_this_boot.return_value = True
+        with pytest.raises(
+            ota_errors.ParameterSetNotApplicable, match="after the next reboot"
+        ):
+            an_updater_with_slots(
+                tmp_path, store, host_root, boot_controller, PARAMS
+            )._check_fits_the_running_base()
+
+    def test_an_apply_of_the_base_in_a_reserved_path_is_refused(
+        self, tmp_path: Path, store, host_root, boot_controller
+    ):
+        """What runs there is otaclient's or the platform's.
+
+        TODO(ota-image-libs>0.8.0): refused by the image library from then on."""
+        _apply = host_root / "usr/local/sbin/apply-parameters"
+        _apply.parent.mkdir(mode=0o755, parents=True)
+        _apply.write_text("#!/bin/sh\n")
+        _apply.chmod(0o755)
+        _slot = ParameterSlot(
+            name=PARAMS.name, path=PARAMS.path, apply="/usr/local/sbin/apply-parameters"
+        )
+        with pytest.raises(
+            ota_errors.ParameterSetNotApplicable, match="its apply .* is in"
+        ):
+            an_updater_with_slots(
+                tmp_path, store, host_root, boot_controller, _slot
+            )._check_fits_the_running_base()
+
+    def test_the_dpi_this_ecu_names_is_reserved(
+        self, tmp_path: Path, store, host_root, boot_controller, mocker: MockerFixture
+    ):
+        """As named, and as it resolves on the host, with their directories."""
+        (host_root / "opt/vendor/dpi").mkdir(mode=0o755, parents=True)
+        (host_root / "opt/vendor/dpi/run").write_text("#!/bin/sh\n")
+        (host_root / "opt/dpi-link").symlink_to("/opt/vendor/dpi/run")
+        mocker.patch.object(
+            _parameter_set, "ecu_info", mocker.MagicMock(dpi_executable="/opt/dpi-link")
+        )
+        _reserved = _parameter_set.reserved_paths(host_root=str(host_root))
+        assert {"/opt/dpi-link", "/opt/vendor/dpi/run", "/opt/vendor/dpi"} <= set(
+            _reserved
+        )
+        assert "/opt" not in _reserved, "the directory of a link is not the DPI's"
+        assert "/" not in _reserved
+        with pytest.raises(
+            ota_errors.ParameterSetNotApplicable, match="reads for itself"
+        ):
+            an_updater_with_slots(
+                tmp_path,
+                store,
+                host_root,
+                boot_controller,
+                ParameterSlot(name="s", path="/opt/vendor/dpi", apply="reboot"),
+            )._check_fits_the_running_base()
+
+    def test_a_refusal_on_a_store_others_can_change_deletes_nothing_in_it(
+        self, tmp_path: Path, store, host_root, boot_controller
+    ):
+        """Not even a staging left there: nothing is done in a store not trusted."""
+        (store.staging_dir / "tree").mkdir(mode=0o700, parents=True)
+        os.chmod(store.root, 0o777)
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        with pytest.raises(ota_errors.ParameterSetNotApplicable):
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                host_root=host_root,
+                boot_controller=boot_controller,
+            ).execute()
+        assert (store.staging_dir / "tree").is_dir()
+
+
+class TestAnotherBasesSetAtUpdate:
+    """The slots share the store, which holds the set A applied; B runs."""
+
+    @pytest.fixture
+    def a_set_of_a(
+        self,
+        tmp_path: Path,
+        store,
+        host_root,
+        boot_controller,
+        running_image,
+        on_the_slots_own_root,
+    ) -> AppliedRecord:
+        """A's set over the directory that holds PARAMS, applied on A; the reboot into
+        B, which records its own release."""
+        on_the_slots_own_root.return_value = False
+        running_image.return_value = "image-a"
+        _outer = os.path.dirname(PARAMS.path)
+        _record = AppliedRecord(
+            set_manifest_digest="sha256:" + "a" * 64,
+            set_name="a",
+            set_version="1",
+            slots=[RecordedSlot(name="outer", path=_outer, apply="reboot")],
+            base_image_id="image-a",
+            firmware_version="a-1",
+            image_id="parameter-image-a",
+        )
+        (store.applied_dir / TREE_DNAME / _outer.lstrip("/")).mkdir(
+            mode=0o755, parents=True
+        )
+        store.applied_dir.chmod(0o700)
+        (store.applied_dir / "record.json").write_text(_record.model_dump_json())
+        running_image.return_value = "image-b"
+        boot_controller.load_recorded_version.return_value = (
+            "2.0.0",
+            VersionDetail(release_name="b", release_id="rb", image_id="image-b"),
+        )
+        return _record
+
+    def test_not_committed_a_set_is_refused_and_as_set_stays(
+        self, tmp_path: Path, store, host_root, boot_controller, a_set_of_a
+    ):
+        """The platform may still fall back to A, which lays its set again."""
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        with pytest.raises(
+            ota_errors.ParameterSetNotApplicable, match="may still fall back to"
+        ) as _e:
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                host_root=host_root,
+                boot_controller=boot_controller,
+                base_committed=False,
+            ).execute()
+        assert _e.value.get_failure_reason().startswith("E463: ")
+        assert store.applied_record() == a_set_of_a
+        boot_controller.store_failure_info.assert_not_called()
+
+    def test_committed_the_set_is_bs_own_and_a_set_is_replaced(
+        self, tmp_path: Path, store, host_root, boot_controller, a_set_of_a
+    ):
+        """A's set covers nothing of B: B's slot inside A's slot path is taken, and
+        what B's set keeps as the base's records are B's."""
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        make_updater(
+            tmp_path,
+            blobs=_blobs,
+            index=_index,
+            store=store,
+            host_root=host_root,
+            boot_controller=boot_controller,
+        ).execute()
+        _record = store.applied_record()
+        assert _record is not None and _record.base_image_id == "image-b"
+        assert _record.base_version == "2.0.0"
+        assert _record.base_version_detail == VersionDetail(
+            release_name="b", release_id="rb", image_id="image-b"
+        )
+        assert store._runner.ran == [PARAMS.apply]  # type: ignore[attr-defined]
+        assert PARAMS.path in store._mounter.mounted  # type: ignore[attr-defined]
