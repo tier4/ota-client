@@ -37,7 +37,13 @@ from ota_image_libs.v1.parameter_set.schema import (
     ParameterSetConfig,
     ParameterSetManifest,
 )
-from ota_image_libs.v1.parameter_set.slots import APPLY_REBOOT, check_slots_in_tree
+from ota_image_libs.v1.parameter_set.slots import (
+    APPLY_REBOOT,
+    apply_comes_with_set,
+    check_applies_in_set,
+    check_slots_in_tree,
+    slot_of,
+)
 from typing_extensions import Unpack
 
 from ota_metadata.errors import ImageMetadataInvalid
@@ -106,8 +112,9 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
     discarded); from there on it is refused, as at the reboot of any other update.
 
     The set names no base: it is laid over whatever image the ECU runs, as long as
-    that image has the set's slot directories and applies. Which images a set suits
-    is decided where the release is evaluated.
+    that image has room for its slots (a slot directory it lacks is made) and the
+    applies the set does not carry itself. Which images a set suits is decided where
+    the release is evaluated.
     """
 
     def __init__(
@@ -196,12 +203,14 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             cond.wait()
 
     def _check_fits_the_running_base(self) -> None:
-        """The running image has each slot's directory and each `apply`, and nothing
-        but otaclient's own set is mounted on a slot: a set the image has no room
-        for is refused before anything changes.
+        """The running image has room for each slot (a directory, or none: otaclient
+        makes the mount point) and each `apply` of the base, and nothing but
+        otaclient's own set is mounted on a slot: a set the image has no room for is
+        refused before anything changes. An `apply` the set carries (inside its
+        slots) is checked against its layer once unpacked.
 
-        What the applied set covers is not the base's: a slot or an `apply` of the new
-        set inside a slot of the applied one (and not that slot itself) would be
+        What the applied set covers is not the base's: a slot or an `apply` of the
+        base inside a slot of the applied one (and not that slot itself) would be
         checked against the set before, and is refused too.
         """
         assert self.config is not None
@@ -217,7 +226,10 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         _applied = self._store.applied_record()
         _covered = [_s.path for _s in _applied.slots] if _applied else []
         for _slot in self.config.slots:
-            for _path, _what in ((_slot.path, "path"), (_slot.apply, "apply")):
+            _of_base = [(_slot.path, "path")]
+            if not apply_comes_with_set(_slot, self.config.slots):
+                _of_base.append((_slot.apply, "apply"))
+            for _path, _what in _of_base:
                 _over = next(
                     (_c for _c in _covered if _path.startswith(_c + "/")), None
                 )
@@ -232,26 +244,60 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                     f"slot {_slot.name!r}: something else is mounted at {_slot.path}",
                     module=__name__,
                 )
+            self._check_mount_point_can_be_made(_slot.name, _slot.path)
         self._note_applies_others_can_change()
+
+    def _check_mount_point_can_be_made(self, name: str, path: str) -> None:
+        """A slot directory the running image does not have is made when the slot is
+        laid: refused here, before anything changes, when where it goes cannot be
+        written (a read-only filesystem, say)."""
+        _root = os.path.realpath(self._host_root)
+        _at = os.path.join(_root, path.lstrip("/"))
+        if os.path.isdir(_at):
+            return
+        while _at != _root and not os.path.lexists(_at):
+            _at = os.path.dirname(_at)
+        if not os.access(_at, os.W_OK) or os.statvfs(_at).f_flag & os.ST_RDONLY:
+            raise ota_errors.ParameterSetNotApplicable(
+                f"slot {name!r}: the running image has no {path}, and it cannot be "
+                f"made: /{os.path.relpath(_at, _root)} is not writable",
+                module=__name__,
+            )
 
     def _note_applies_others_can_change(self) -> None:
         """An `apply` runs as root: one that users other than root can change (the
-        file or a directory on its way, writable by them) is logged and recorded.
-        Not refused: images in use have such directories (e.g. /opt/autoware owned by
-        the autoware user)."""
+        file, or a directory on its way, writable by them or not root's) is logged and
+        recorded. For an apply the set carries, the file and the slot holding it are
+        the set's (root's, laid read-only, checked with the layer): what is looked at
+        is the image's way to that slot, which a directory renamed there could
+        redirect. Not refused: images in use have such directories (an application's
+        tree owned by the application's user)."""
         assert self.config is not None
         _root = os.path.realpath(self._host_root)
-        for _apply in dict.fromkeys(_s.apply for _s in self.config.slots):
-            if _apply == APPLY_REBOOT:
+        _ways: dict[str, str] = {}
+        for _slot in self.config.slots:
+            if _slot.apply == APPLY_REBOOT:
                 continue
+            _in = (
+                slot_of(_slot.apply[1:], self.config.slots)
+                if apply_comes_with_set(_slot, self.config.slots)
+                else None
+            )
+            # the way to look at: the apply itself, or what holds the slot it is in
+            _ways.setdefault(
+                _slot.apply, os.path.dirname(_in.path) if _in else _slot.apply
+            )
+        for _apply, _start in _ways.items():
             _writable: list[str] = []
-            _path = _apply
+            _path = _start
             while True:
                 try:
                     _st = os.lstat(os.path.join(_root, _path.lstrip("/")))
-                except OSError:
-                    break
-                if _st.st_uid != 0 or _st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+                except FileNotFoundError:
+                    _st = None  # made by otaclient as the mount point: root's
+                if _st is not None and (
+                    _st.st_uid != 0 or _st.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+                ):
                     _writable.append(_path)
                 if _path == "/":
                     break
@@ -270,7 +316,9 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
 
     def _unpack(self, staging: Path, layer_f: Path) -> ParameterLayerInfo:
         """Unpack and check the layer into the staging; the files the config lists,
-        when it lists them, are exactly those."""
+        when it lists them, are exactly those, and an `apply` inside the set's slots
+        is among the unpacked files as an executable regular file others cannot
+        write."""
         assert self.manifest is not None and self.config is not None
         if self.manifest.layer is None:
             return ParameterLayerInfo()
@@ -295,6 +343,13 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         except ValueError as e:
             raise ota_errors.OTAImageInvalid(
                 f"the parameter set's config does not agree with its layer: {e}",
+                module=__name__,
+            ) from e
+        try:
+            check_applies_in_set(_tree, self.config.slots)
+        except ValueError as e:
+            raise ota_errors.OTAImageInvalid(
+                f"the apply the parameter set carries is not one to run: {e}",
                 module=__name__,
             ) from e
         return _info

@@ -325,10 +325,10 @@ class BootControlBSPVersionCompatibilityFailed(OTAErrorRecoverable):
 
 
 class ParameterSetNotApplicable(OTAErrorRecoverable):
-    """A parameter set the image this ECU runs has no room for (a slot directory or
-    an `apply` it names is missing there, or something else is mounted at a slot), or
-    one for an ECU whose layout takes none: the image is fine, it does not fit this
-    ECU as it runs. Nothing is changed."""
+    """A parameter set the image this ECU runs has no room for (an `apply` of the
+    image it names is missing there, a slot's path is a file there, or something else
+    is mounted at a slot), or one for an ECU whose layout takes none: the image is
+    fine, it does not fit this ECU as it runs. Nothing is changed."""
 
     failure_errcode: OTAErrorCode = OTAErrorCode.E_PARAMETER_SET_NOT_APPLICABLE
     failure_description: str = "the parameter set does not fit the image this ECU runs"

@@ -73,6 +73,12 @@ PARAMS = ParameterSlot(
     path="/opt/autoware/vehicle/sample_vehicle/individual_params",
     apply="/opt/autoware/vehicle/sample_vehicle/apply.sh",
 )
+OVERLAY = ParameterSlot(
+    name="sample_overlay",
+    path="/opt/autoware/vehicle/sample_overlay",
+    apply="/opt/autoware/vehicle/sample_overlay/apply.sh",
+)
+"""A vehicle overlay unpacked as a whole, with the apply.sh it carries."""
 THIS_ECU = ImageIdentifier("autoware", OTAReleaseKey.dev)
 ANNOTATIONS = {
     PLATFORM_ECU: "autoware",
@@ -87,6 +93,7 @@ def parameter_image(
     tree: Path | None,
     files: list | None | str = "the layer's",
     ecu: str = "autoware",
+    slots: list[ParameterSlot] | None = None,
 ) -> tuple[Path, ImageIndex]:
     """The blobs of a parameter image with one set for THIS_ECU, and its index."""
     _blobs = root / "blobs"
@@ -95,7 +102,7 @@ def parameter_image(
         _layer = EmptyDescriptor.add_contents_to_resource_dir(EMPTY_JSON, _blobs)
         _config = ParameterSetConfig(name="p", version="2026.10.29-1")
     else:
-        _slots = [PARAMS]
+        _slots = slots or [PARAMS]
         _out = io.BytesIO()
         _info = write_parameter_layer(tree, _slots, _out)
         _layer = ParameterLayerDescriptor.add_contents_to_resource_dir(
@@ -129,6 +136,21 @@ def parameter_image(
     return _blobs, _index
 
 
+def overlay_tree(
+    root: Path, *, apply_mode: int | None = 0o755, dir_mode: int = 0o755
+) -> Path:
+    """OVERLAY's contents, with its apply.sh unless `apply_mode` is None."""
+    _f = root / OVERLAY.relpath / "share" / "params.yaml"
+    _f.parent.mkdir(parents=True)
+    (root / OVERLAY.relpath).chmod(dir_mode)
+    _f.write_text("a: 1\n")
+    if apply_mode is not None:
+        _apply = root / OVERLAY.apply[1:]
+        _apply.write_text("#!/bin/sh\n")
+        _apply.chmod(apply_mode)
+    return root
+
+
 def set_tree(root: Path, content: str) -> Path:
     _f = root / PARAMS.relpath / "default" / "vehicle.param.yaml"
     _f.parent.mkdir(parents=True)
@@ -137,11 +159,21 @@ def set_tree(root: Path, content: str) -> Path:
 
 
 class FakeMounter:
-    def __init__(self) -> None:
+    def __init__(self, host_root: Path) -> None:
+        self.host_root = host_root
         self.mounted: dict[str, Path] = {}
+        self.made: list[str] = []
 
     def is_mounted(self, mount_point: str) -> bool:
         return mount_point in self.mounted
+
+    def make_mount_point(self, mount_point: str) -> bool:
+        _dir = self.host_root / mount_point.lstrip("/")
+        if _dir.is_dir():
+            return False
+        _dir.mkdir(parents=True)
+        self.made.append(mount_point)
+        return True
 
     def bind_ro(self, source: Path, mount_point: str) -> None:
         self.mounted[mount_point] = source
@@ -197,7 +229,7 @@ def store(tmp_path: Path) -> ParameterSetStore:
     return ParameterSetStore(
         root=tmp_path / "store",
         fstab=_fstab,
-        mounter=FakeMounter(),
+        mounter=FakeMounter(tmp_path / "host_root"),
         runner=FakeRunner(),
     )
 
@@ -409,9 +441,12 @@ class TestParameterSetUpdate:
         "spoil, match",
         (
             pytest.param(
-                lambda root: shutil.rmtree(root / PARAMS.relpath),
-                "no directory",
-                id="no_slot_directory",
+                lambda root: (
+                    shutil.rmtree(root / PARAMS.relpath),
+                    (root / PARAMS.relpath).write_text("a file\n"),
+                ),
+                "is not a directory",
+                id="slot_path_a_file",
             ),
             pytest.param(
                 lambda root: (root / PARAMS.apply[1:]).unlink(),
@@ -592,9 +627,22 @@ class TestParameterSetUpdate:
     def test_a_failed_apply_that_cannot_be_undone_is_unrecoverable(
         self, tmp_path: Path, store, host_root, boot_controller
     ):
-        """The base's defaults do not apply either: what the slot runs is not known."""
+        """The set before does not apply again either: what the slot runs is not
+        known."""
         _blobs, _index = parameter_image(
-            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+            tmp_path / "image1", tree=set_tree(tmp_path / "tree1", "x\n")
+        )
+        make_updater(
+            tmp_path,
+            blobs=_blobs,
+            index=_index,
+            store=store,
+            host_root=host_root,
+            boot_controller=boot_controller,
+        ).execute()
+        boot_controller.load_recorded_version.return_value = ("2026.10.29-1", None)
+        _blobs, _index = parameter_image(
+            tmp_path / "image2", tree=set_tree(tmp_path / "tree2", "y\n")
         )
         store._runner.fail_times = 2  # type: ignore[attr-defined]
         with pytest.raises(ota_errors.ParameterSetRestoreFailed) as _e:
@@ -609,6 +657,154 @@ class TestParameterSetUpdate:
         assert _e.value.get_failure_reason().startswith("E545: ")
         assert _e.value.failure_type == FailureType.UNRECOVERABLE
         assert "roll_back_failed" in store.history_file.read_text()
+
+    def test_a_set_that_carries_its_apply_needs_none_in_the_image(
+        self, tmp_path: Path, store, host_root, boot_controller
+    ):
+        """The overlay's directory and its apply.sh are not in the running image: the
+        mount point is made, and what runs is the set's apply.sh."""
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=overlay_tree(tmp_path / "tree"), slots=[OVERLAY]
+        )
+        _update = dict(
+            blobs=_blobs,
+            index=_index,
+            store=store,
+            host_root=host_root,
+            boot_controller=boot_controller,
+        )
+        make_updater(tmp_path, **_update).execute()
+        _record = store.applied_record()
+        assert _record is not None and _record.slots[0].apply == OVERLAY.apply
+        assert OVERLAY.path in store._mounter.mounted  # type: ignore[attr-defined]
+        assert store._mounter.made == [OVERLAY.path]  # type: ignore[attr-defined]
+        assert store._runner.ran == [OVERLAY.apply]  # type: ignore[attr-defined]
+        _history = store.history_file.read_text()
+        assert _history.count('"mount_point_made"') == 1
+        assert "apply_not_root_only" not in _history
+
+        # the same set over the applied one: its apply, inside the applied set's
+        #   slot, is the set's, not the image's; nothing changed, nothing runs
+        boot_controller.load_recorded_version.return_value = ("2026.10.29-1", None)
+        make_updater(tmp_path, **_update).execute()
+        assert store._runner.ran == [OVERLAY.apply]  # type: ignore[attr-defined]
+        assert store.history_file.read_text().count('"mount_point_made"') == 1
+
+    def test_the_way_to_the_slot_of_a_carried_apply_is_looked_at(
+        self, tmp_path: Path, store, host_root, boot_controller
+    ):
+        """The set's apply runs by its path in the image: a directory on the way to
+        its slot that others can write is recorded."""
+        (host_root / "opt" / "autoware").chmod(0o775)
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=overlay_tree(tmp_path / "tree"), slots=[OVERLAY]
+        )
+        make_updater(
+            tmp_path,
+            blobs=_blobs,
+            index=_index,
+            store=store,
+            host_root=host_root,
+            boot_controller=boot_controller,
+        ).execute()
+        _noted = [
+            json.loads(_l)
+            for _l in store.history_file.read_text().splitlines()
+            if '"apply_not_root_only"' in _l
+        ]
+        assert [_n["apply"] for _n in _noted] == [OVERLAY.apply]
+        assert "/opt/autoware" in _noted[0]["writable"]
+
+    @pytest.mark.parametrize(
+        "apply_mode, dir_mode, files, match",
+        (
+            (None, 0o755, None, "the set has no apply"),
+            (0o644, 0o755, "the layer's", "not an executable file"),
+            (0o757, 0o755, "the layer's", "others can write"),
+            (0o755, 0o777, "the layer's", "others can write"),
+        ),
+        ids=("not_carried", "not_executable", "others_write", "others_write_dir"),
+    )
+    def test_a_set_without_a_fit_apply_of_its_own_is_an_invalid_image(
+        self,
+        tmp_path: Path,
+        store,
+        host_root,
+        boot_controller,
+        apply_mode,
+        dir_mode,
+        files,
+        match,
+    ):
+        _blobs, _index = parameter_image(
+            tmp_path / "image",
+            tree=overlay_tree(
+                tmp_path / "tree", apply_mode=apply_mode, dir_mode=dir_mode
+            ),
+            slots=[OVERLAY],
+            files=files,
+        )
+        with pytest.raises(ota_errors.OTAImageInvalid, match=match) as _e:
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                host_root=host_root,
+                boot_controller=boot_controller,
+            ).execute()
+        assert _e.value.get_failure_reason().startswith("E422: ")
+        assert store.applied_record() is None
+        assert store._mounter.mounted == {}  # type: ignore[attr-defined]
+        assert store._runner.ran == []  # type: ignore[attr-defined]
+
+    def test_a_mount_point_that_cannot_be_made_is_refused_before_anything_changes(
+        self, tmp_path: Path, store, host_root, boot_controller, mocker: MockerFixture
+    ):
+        _statvfs = os.statvfs
+
+        def _read_only(path):
+            _st = _statvfs(path)
+            return mocker.MagicMock(f_flag=_st.f_flag | os.ST_RDONLY)
+
+        mocker.patch.object(_parameter_set.os, "statvfs", side_effect=_read_only)
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=overlay_tree(tmp_path / "tree"), slots=[OVERLAY]
+        )
+        with pytest.raises(
+            ota_errors.ParameterSetNotApplicable, match="cannot be made"
+        ):
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                host_root=host_root,
+                boot_controller=boot_controller,
+            ).execute()
+        assert store._mounter.made == []  # type: ignore[attr-defined]
+
+    def test_a_failed_first_set_is_recoverable(
+        self, tmp_path: Path, store, host_root, boot_controller
+    ):
+        """Nothing before to put back, so nothing runs again: the slot is the base's
+        once more, the update can be retried."""
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        store._runner.fail_times = 2  # type: ignore[attr-defined]
+        with pytest.raises(ota_errors.ParameterSetApplyFailed) as _e:
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                host_root=host_root,
+                boot_controller=boot_controller,
+            ).execute()
+        assert _e.value.get_failure_reason().startswith("E544: ")
+        assert _e.value.failure_type == FailureType.RECOVERABLE
+        assert store._runner.ran == [PARAMS.apply]  # type: ignore[attr-defined]
 
     def test_a_failure_before_the_switch_changes_nothing(
         self, tmp_path: Path, store, host_root, boot_controller, mocker: MockerFixture
