@@ -26,11 +26,11 @@ A full OTA writes a new slot from its image: the set is not carried over, only t
 
 A slot is never over what otaclient uses for itself: besides what every consumer reads (`/boot`, `/etc/fstab`, `/opt/ota`, `/usr/share/ota`), `/proc`, `/sys`, `/dev`, `/run`, `/host_root`, `/ota-cache` and otaclient's stores at `/.ota-*`; such a set is refused with `E463`.
 
-A slot directory the running image does not have is made (empty, root's, with its missing parents) as the mount point, recorded as `mount_point_made`, and left in place when the slot is taken away; one the image has as a file, or behind a file or a symbolic link, refuses the set with `E463`.
+A slot directory the running image does not have is made (empty, root's, mode `0755` with each missing parent, whatever the umask) as the mount point, recorded as `mount_point_made`, and left in place when the slot is taken away; one the image has as a file, or behind a file or a symbolic link, refuses the set with `E463`.
 A slot's mount is taken away lazily: a program that runs from the slot's files keeps them until it exits.
 
 A slot's `apply` runs as root, in the host's root, once the slot holds the set's new contents: it is the file at its path then, the set's own when the path is inside one of the set's slots (the set must carry it, executable), the running image's otherwise (which must have it, or the set is refused with `E463`).
-Nothing runs when a slot is taken away (an empty set, a set without that slot, a set dropped at startup): that takes effect when what reads the slot restarts. When a switch fails, the set before is put back and the `apply` of its slots runs again; with no set before, nothing runs.
+Nothing runs when a slot is taken away (an empty set, a set without that slot, a set dropped at startup): that takes effect when what reads the slot restarts. When a switch fails, the set before is put back and the `apply` of its slots runs again; with no set before, nothing runs. Whenever a set is undone or dropped, its entries go from `/etc/fstab` first, before its mounts: a later boot does not lay it again even when the rest fails.
 An `apply` of the running image that users other than root can change (the file, or a directory on its way, writable by them) is logged and recorded as `apply_not_root_only`, but not refused.
 
 ## The Record

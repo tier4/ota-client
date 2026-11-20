@@ -362,6 +362,20 @@ class TestSwitch:
         assert PARAMS.path in mounter.mounted
         assert len(fstab_block(store)) == 1
 
+    def test_a_failed_first_set_leaves_no_fstab_entry_even_if_it_stays_mounted(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ):
+        """Undone after its apply failed, with nothing before to put back: whatever
+        fails after, a later boot does not lay it again."""
+        stage(store, PARAMS)
+        runner.fail_times = 1
+        mounter.fail_umount = True
+        with pytest.raises(ParameterSetFailed) as _e:
+            store.switch()
+        assert not _e.value.restored
+        assert fstab_block(store) == []
+        assert runner.ran == [PARAMS.apply], "nothing runs for the slot taken away"
+
     def test_a_set_that_cannot_be_put_back_says_so(
         self, store: ParameterSetStore, runner: FakeRunner
     ):
@@ -787,6 +801,15 @@ class TestAtStartup:
         assert mounter.shows(PARAMS.path, store.tree_of(PARAMS))
         assert runner.ran == [PARAMS.apply]
 
+    def test_a_drop_whose_mount_cannot_go_leaves_no_fstab_entry(
+        self, store: ParameterSetStore, mounter: FakeMounter
+    ):
+        _record = apply_set(store, PARAMS)
+        mounter.fail_umount = True
+        store.check_at_startup("another-image", slot_records=self.records_of(_record))
+        assert "drop_failed" in events(store)
+        assert fstab_block(store) == []
+
     def test_a_roll_back_that_fails_is_not_recorded_as_recovered(
         self, store: ParameterSetStore, mounter: FakeMounter
     ):
@@ -895,6 +918,17 @@ class TestHostCommands:
         assert (_host / "opt" / "vehicle" / "overlay").is_dir()
         assert stat.S_IMODE((_host / "opt/vehicle/overlay").stat().st_mode) == 0o755
         assert _mounter.make_mount_point("/opt/vehicle/overlay") is False
+
+    def test_a_mount_point_is_made_with_0755_whatever_the_umask(self, tmp_path: Path):
+        _host = tmp_path / "host_root"
+        (_host / "opt").mkdir(parents=True)
+        _umask = os.umask(0o077)
+        try:
+            HostParameterSlotMounter(str(_host)).make_mount_point("/opt/v/o")
+        finally:
+            os.umask(_umask)
+        for _made in ("opt/v", "opt/v/o"):
+            assert stat.S_IMODE((_host / _made).stat().st_mode) == 0o755
 
     def test_a_mount_point_behind_a_link_or_a_file_is_not_made(self, tmp_path: Path):
         _host = tmp_path / "host_root"
