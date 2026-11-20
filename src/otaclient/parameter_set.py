@@ -78,7 +78,11 @@ from typing import Any, Protocol
 
 from ota_image_libs.common.oci_spec import Sha256Digest
 from ota_image_libs.v1.parameter_set.schema import ParameterSetFileEntry
-from ota_image_libs.v1.parameter_set.slots import APPLY_REBOOT, ParameterSlot
+from ota_image_libs.v1.parameter_set.slots import (
+    APPLY_REBOOT,
+    MOUNT_POINT_MODE,
+    ParameterSlot,
+)
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from otaclient._types import VersionDetail
@@ -320,13 +324,20 @@ class HostParameterSlotMounter:
 
     def make_mount_point(self, mount_point: str) -> bool:
         """Make the slot's directory when the host does not have it (a slot the base
-        has no directory for), with its missing parents, as root's; True when it was
-        made. Left in place when the slot is taken away: an empty directory.
+        has no directory for), with its missing parents, as root's with mode 0755
+        whatever the umask; True when it was made. Left in place when the slot is
+        taken away: an empty directory.
         Raises OSError for a path behind a link, or with a file in the way."""
         _on_host = self._on_host(mount_point)
         if os.path.isdir(_on_host):
             return False
-        os.makedirs(_on_host, mode=0o755)
+        _at = os.path.realpath(self._host_root)
+        for _component in mount_point.strip("/").split("/"):
+            _at = os.path.join(_at, _component)
+            if not os.path.isdir(_at):
+                # FileExistsError for a file in the way
+                os.mkdir(_at)
+                os.chmod(_at, MOUNT_POINT_MODE)
         return True
 
     def bind_ro(self, source: Path, mount_point: str) -> None:
@@ -732,7 +743,12 @@ class ParameterSetStore:
                 # one side is not there (crashed between the two renames of a switch,
                 #   or no set before): every slot the set put back fills changes
                 _changed = list(_back.slots) if _back else []
-            self._unmount([*self._paths(_failed, _back), *self._fstab_mount_points()])
+            _points = [*self._paths(_failed, _back), *self._fstab_mount_points()]
+            # the failed set first goes from what mounts at boot: a later boot does
+            #   not lay it again, whatever fails below (the set put back is written
+            #   in when it is in place)
+            self._write_fstab(None)
+            self._unmount(_points)
             shutil.rmtree(self.applied_dir, ignore_errors=True)
             if self.previous_dir.exists():
                 os.replace(self.previous_dir, self.applied_dir)
@@ -978,14 +994,14 @@ class ParameterSetStore:
                     version=record.base_version,
                     version_detail=record.base_version_detail,
                 )
-            self._unmount(
-                [
-                    *self._paths(record),
-                    *(mount_points or []),
-                    *self._fstab_mount_points(),
-                ]
-            )
+            _points = [
+                *self._paths(record),
+                *(mount_points or []),
+                *self._fstab_mount_points(),
+            ]
+            # first: a later boot does not lay the set again, whatever fails below
             self._write_fstab(None)
+            self._unmount(_points)
             shutil.rmtree(self.applied_dir, ignore_errors=True)
         except Exception as e:
             logger.error(f"failed to drop {_what}: {e}")
