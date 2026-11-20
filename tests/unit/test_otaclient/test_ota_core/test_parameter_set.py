@@ -1055,6 +1055,43 @@ class TestParameterSetUpdate:
         boot_controller.on_parameter_set_applied.assert_not_called()
 
 
+class TestRebootForApply:
+    def test_the_same_slot_is_rebooted_by_the_boot_controller(
+        self, tmp_path: Path, store, host_root, boot_controller, mocker: MockerFixture
+    ):
+        """After the sub ECUs and the metrics: the way this layout reboots (the DPI's
+        on a partition-based one), not a reboot of otaclient's own."""
+        _order = mocker.MagicMock()
+        boot_controller.reboot_current_slot.side_effect = SystemExit(1)
+        _order.attach_mock(boot_controller.reboot_current_slot, "reboot")
+        _updater = make_updater(
+            tmp_path,
+            blobs=tmp_path,
+            index=ImageIndex(
+                manifests=[],
+                annotations=ImageIndex.Annotations.model_validate(
+                    {BUILD_TOOL_VERSION: "t"}
+                ),
+            ),
+            store=store,
+            host_root=host_root,
+            boot_controller=boot_controller,
+        )
+        mocker.patch.object(
+            _updater,
+            "_wait_for_sub_ecus_and_publish_metrics",
+            side_effect=lambda: _order.waited(),
+        )
+        mocker.patch.object(_parameter_set.time, "sleep")
+        assert not hasattr(_parameter_set, "cmdhelper")
+
+        with pytest.raises(SystemExit):
+            _updater.reboot_for_apply()
+
+        assert [_c[0] for _c in _order.mock_calls] == ["waited", "reboot"]
+        boot_controller.reboot_current_slot.assert_called_once_with()
+
+
 class TestTheStore:
     def test_a_store_others_can_change_is_refused_and_nothing_is_written(
         self, tmp_path: Path, store, host_root, boot_controller

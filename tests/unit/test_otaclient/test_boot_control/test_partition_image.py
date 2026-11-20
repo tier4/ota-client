@@ -39,6 +39,7 @@ from otaclient.boot_control._partition_image import (
 )
 from otaclient.boot_control.protocol import (
     BootControllerProtocol,
+    ParameterSetBootControllerProtocol,
     PartitionLayoutBootControllerProtocol,
 )
 from otaclient.configs import BootloaderType
@@ -233,6 +234,55 @@ class TestStartup:
         fail loudly rather than land somewhere else."""
         with pytest.raises(NotImplementedError, match="written as an image"):
             make_controller(tmp_path).get_standby_slot_path()
+
+
+class TestParameterSets:
+    """A parameter set is laid over the running slot on this layout as on any other:
+    this controller keeps the slot's records, the DPI is not asked."""
+
+    def test_it_takes_a_parameter_set(self, tmp_path: Path):
+        assert isinstance(make_controller(tmp_path), ParameterSetBootControllerProtocol)
+
+    def test_the_release_of_a_set_is_the_slots_and_a_success(self, tmp_path: Path):
+        """In place, after the failure the update recorded while it ran: SUCCESS,
+        with the set's release, also for the otaclient that starts next."""
+        _dpi = FakeDPI(version="2.9.0")
+        _ctrl = make_controller(tmp_path, _dpi)
+        _ctrl.store_failure_info(
+            failure_type=FailureType.RECOVERABLE, failure_reason="E544: in progress"
+        )
+        _detail = VersionDetail(
+            release_name="params", release_id="rid", image_id="parameter-image"
+        )
+
+        _ctrl.on_parameter_set_applied(version="p-1", version_detail=_detail)
+
+        assert _ctrl.load_recorded_version() == ("p-1", _detail)
+        _after = make_controller(tmp_path, _dpi)
+        assert _after.get_booted_ota_status() == OTAStatus.SUCCESS
+        assert _after.get_booted_failure_info() is None
+        assert _after.load_version() == "p-1"
+        assert _dpi.calls == ["layout", "layout"], "the DPI is not asked"
+
+    def test_the_recorded_version_is_not_the_images_own(self, tmp_path: Path):
+        """What the base's records are kept as: the record, not the version the
+        running image carries (`load_version` falls back to that one)."""
+        _ctrl = make_controller(tmp_path, FakeDPI(version="2.9.0"))
+        assert _ctrl.load_version() == "2.9.0"
+        assert _ctrl.load_recorded_version() == ("", None)
+
+    def test_a_dropped_set_gives_the_slot_its_base_records_back(self, tmp_path: Path):
+        _ctrl = make_controller(tmp_path)
+        _base = VersionDetail(release_name="3.0.0", release_id="r", image_id="base")
+        _ctrl.on_parameter_set_applied(
+            version="p-1", version_detail=VersionDetail(image_id="parameter-image")
+        )
+
+        _ctrl.restore_recorded_version(version="3.0.0", version_detail=_base)
+
+        assert _ctrl.load_recorded_version() == ("3.0.0", _base)
+        _ctrl.restore_recorded_version(version="3.0.0", version_detail=None)
+        assert _ctrl.load_recorded_version() == ("3.0.0", None)
 
 
 class TestTheStateIsOurs:
@@ -691,6 +741,41 @@ class TestFinalizing:
         )
         _info = make_controller(tmp_path).get_booted_failure_info()
         assert _info is not None and "a bug" in _info[1]
+
+    def test_the_same_slot_is_rebooted_through_the_dpi_too(self, tmp_path: Path, host):
+        """What a parameter set whose changed slot's apply is `reboot` ends with:
+        nothing is armed, and the DPI's reboot boots the committed slot again; a
+        plain reboot of the guest does not come back on DriveOS."""
+        _ctrl = make_controller(
+            tmp_path,
+            FakeDPI(calls=host, layout=DRIVEOS_LAYOUT),
+        )
+
+        with pytest.raises(SystemExit) as _exit:
+            _ctrl.reboot_current_slot()
+
+        assert host == ["layout", "sync", "reboot", "wait"]
+        assert "cmdhelper.reboot" not in host
+        assert _exit.value.code == 1
+
+    def test_a_dpi_that_does_not_reboot_the_same_slot_leaves_the_set_a_success(
+        self, tmp_path: Path, host, caplog: pytest.LogCaptureFixture
+    ):
+        """Exit 1, as for any reboot that cannot be requested; the set is in place
+        and its SUCCESS recorded, and stays so: it takes effect at the next reboot."""
+        _ctrl = make_controller(tmp_path, FakeDPI(reboot_error="refused", calls=host))
+        _ctrl.on_parameter_set_applied(version="p-1", version_detail=None)
+
+        with caplog.at_level(logging.ERROR, logger=_partition_image.__name__):
+            with pytest.raises(SystemExit) as _exit:
+                _ctrl.reboot_current_slot()
+
+        assert _exit.value.code == 1
+        assert host == ["layout", "sync", "reboot"], "no reboot of our own, no wait"
+        assert "refused" in caplog.text
+        _after = make_controller(tmp_path)
+        assert _after.get_booted_ota_status() == OTAStatus.SUCCESS
+        assert _after.get_booted_failure_info() is None
 
     def test_a_failure_to_record_the_reason_does_not_change_the_exit(
         self, tmp_path: Path, host, monkeypatch: pytest.MonkeyPatch

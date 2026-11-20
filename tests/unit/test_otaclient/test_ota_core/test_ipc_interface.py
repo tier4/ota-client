@@ -40,7 +40,10 @@ from otaclient._types import (
 )
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.boot_control._base import BootControllerBase
-from otaclient.boot_control.protocol import PartitionLayoutBootControllerProtocol
+from otaclient.boot_control.protocol import (
+    ParameterSetBootControllerProtocol,
+    PartitionLayoutBootControllerProtocol,
+)
 from otaclient.errors import OTAErrorRecoverable
 from otaclient.ota_core import (
     OTAClient,
@@ -368,14 +371,57 @@ class TestOTAClient:
         _code = int(ota_errors.OTAErrorCode.E_OTAMETA_DOWNLOAD_FAILED)
         assert _reason.startswith(f"E{_code}: "), _reason
 
-    def test_a_parameter_set_on_a_partition_layout_is_refused(
+    def test_a_parameter_set_on_a_partition_layout_is_laid_as_on_any_other(
         self, mocker: pytest_mock.MockerFixture
     ):
+        """The set is laid over the running slot, not through the DPI's installer:
+        the partition updater is not involved."""
+
         class _PartitionLayoutBootController(
-            BootControllerProtocol, PartitionLayoutBootControllerProtocol, Protocol
+            BootControllerProtocol,
+            PartitionLayoutBootControllerProtocol,
+            ParameterSetBootControllerProtocol,
+            Protocol,
         ): ...
 
         _boot_controller = mocker.MagicMock(spec=_PartitionLayoutBootController)
+        _boot_controller.load_version.return_value = self.UPDATE_FIRMWARE_VERSION
+        self.ota_client.boot_controller = _boot_controller
+        self.ota_client.ca_store = mocker.MagicMock()
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=True)
+        _updater = mocker.MagicMock(spec=OTAUpdaterForParameterSet)
+        _updater.execute.return_value = False
+        _updater_cls = mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForParameterSet", return_value=_updater
+        )
+        _partition_updater_cls = mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForPartitionImage"
+        )
+        mocker.patch.object(type(self.ota_client._metrics), "publish")
+
+        self.ota_client.update(
+            request=UpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
+                session_id="test_a_parameter_set_on_a_partition_layout",
+            )
+        )
+
+        _updater.execute.assert_called_once()
+        assert _updater_cls.call_args.kwargs["boot_controller"] is _boot_controller
+        _partition_updater_cls.assert_not_called()
+        _boot_controller.pre_update.assert_not_called()
+        assert self.ota_client.live_ota_status == OTAStatus.SUCCESS
+
+    def test_a_boot_controller_without_the_parameter_set_protocol_refuses_a_set(
+        self, mocker: pytest_mock.MockerFixture
+    ):
+        """Every boot controller provides it; one that would not is refused before
+        anything changes."""
+        _boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
         self.ota_client.boot_controller = _boot_controller
         self.ota_client.ca_store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
@@ -389,7 +435,7 @@ class TestOTAClient:
                 url_base=self.OTA_IMAGE_URL,
                 cookies_json=self.UPDATE_COOKIES_JSON,
                 request_id="test-request-id",
-                session_id="test_a_parameter_set_on_a_partition_layout",
+                session_id="test_a_boot_controller_without_the_protocol",
             )
         )
 

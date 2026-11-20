@@ -74,7 +74,7 @@ from otaclient.parameter_set import (
     ParameterSetStore,
     RecordedSlot,
 )
-from otaclient_common import _env, cmdhelper
+from otaclient_common import _env
 from otaclient_common.download_info import DownloadInfo
 
 logger = logging.getLogger(__name__)
@@ -561,8 +561,8 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
     def reboot_for_apply(self) -> None:
         """A changed slot's `apply` is `reboot`: once the status is reported, wait for
         the sub ECUs (this ECU may be their proxy), publish the metrics and reboot the
-        same slot."""
+        same slot, the way the boot controller reboots on this layout."""
         self._wait_for_sub_ecus_and_publish_metrics()
         logger.info(f"a slot asks for a reboot: rebooting in {WAIT_BEFORE_REBOOT}s")
         time.sleep(WAIT_BEFORE_REBOOT)
-        cmdhelper.reboot(chroot=_env.get_dynamic_client_chroot_path())
+        self._boot_controller.reboot_current_slot()

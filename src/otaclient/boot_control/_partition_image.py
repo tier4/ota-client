@@ -35,6 +35,11 @@ which it asks the DPI to decide, because the commit is gated on the health check
 It is the `PartitionLayoutBootControllerProtocol` the partition-image updater runs
 on: the DPI is its installer, and the staging directory is on the persistent storage
 of the device side the DPI reports.
+
+It is also the `ParameterSetBootControllerProtocol` a parameter set is laid over the
+running slot with, as on every layout: the set itself lives on /opt/data, outside
+both slots; this controller keeps the current slot's version records, and reboots the
+same slot through the DPI when a set asks for a reboot.
 """
 
 from __future__ import annotations
@@ -44,7 +49,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Callable, NoReturn
 
 from otaclient import errors as ota_errors
 from otaclient._types import FailureType, OTAStatus, VersionDetail
@@ -160,7 +165,8 @@ def _current_boot_id() -> str:
 class PartitionImageBootController:
     """Boot control for the partition-based layout, driving the DPI.
 
-    Implements `BootControllerProtocol` and `PartitionLayoutBootControllerProtocol`.
+    Implements `BootControllerProtocol`, `PartitionLayoutBootControllerProtocol` and
+    `ParameterSetBootControllerProtocol`.
     The slot facts come from the DPI rather than from probing here: on grub and L4T
     a slot is a PARTLABEL behind a device-mapper target, on DriveOS a boot chain the
     guest has no device of, and getting that wrong means writing the wrong slot,
@@ -442,6 +448,48 @@ class PartitionImageBootController:
         """Get the persisted failure info if the booted ota_status is FAILURE."""
         return self._ota_status_control.load_booted_failure_info()
 
+    # ------ ParameterSetBootControllerProtocol ------ #
+
+    def load_recorded_version(self) -> tuple[str, VersionDetail | None]:
+        """The version and version detail the current slot recorded, as recorded:
+        not the running image's own version `load_version` falls back to."""
+        return (
+            self._ota_status_control.load_active_slot_version(),
+            self._ota_status_control.load_active_slot_version_detail(),
+        )
+
+    def on_parameter_set_applied(
+        self, *, version: str, version_detail: VersionDetail | None
+    ) -> None:
+        """A parameter set is in place on the current slot (no slot switch, the DPI
+        not asked): record its release as the slot's, with the status SUCCESS."""
+        self._ota_status_control.on_parameter_set_applied(
+            version=version, version_detail=version_detail
+        )
+
+    def restore_recorded_version(
+        self, *, version: str, version_detail: VersionDetail | None
+    ) -> None:
+        """Record `version` and `version_detail` as the current slot's again: the
+        base's, when its parameter set is dropped."""
+        self._ota_status_control.store_current_version(
+            version=version, version_detail=version_detail
+        )
+
+    def reboot_current_slot(self) -> NoReturn:
+        """Reboot into the slot that runs now, through the DPI, as every reboot on
+        this layout: a plain reboot of the guest does not come back on DriveOS. No
+        slot is armed (a parameter set stages nothing), so the DPI's reboot boots the
+        committed slot again.
+
+        As `finalizing_update`: synced first, exit 1 when the DPI does not get the
+        reboot under way, else waited out until the shutdown terminates this
+        process. No failure is recorded: the set is in place and its SUCCESS
+        recorded, it takes effect at whichever reboot comes next.
+        """
+        logger.info("rebooting the running slot, through the DPI...")
+        self._reboot_through_the_dpi()
+
     # ------ the update ------ #
 
     def pre_update(self, *, standby_as_ref: bool, erase_standby: bool) -> None:
@@ -527,17 +575,28 @@ class PartitionImageBootController:
         """
         del chroot
         logger.info("rebooting into the staged slot, through the DPI...")
+        self._reboot_through_the_dpi(
+            on_failure=self._record_why_the_reboot_did_not_happen
+        )
+
+    def _reboot_through_the_dpi(
+        self, *, on_failure: Callable[[Exception], None] | None = None
+    ) -> NoReturn:
+        """Sync, ask the DPI for the reboot and wait to be terminated by it; exit 1,
+        after `on_failure`, when the DPI does not get it under way."""
         os.sync()
         logger.warning("system will reboot now!")
         try:
             self._dpi.reboot()
         except DPIError as e:
             logger.error(f"the DPI did not reboot the device: {e!r}, exit now")
-            self._record_why_the_reboot_did_not_happen(e)
+            if on_failure is not None:
+                on_failure(e)
             sys.exit(1)
         except Exception as e:
             logger.exception(f"failed to ask the DPI for the reboot: {e!r}, exit now")
-            self._record_why_the_reboot_did_not_happen(e)
+            if on_failure is not None:
+                on_failure(e)
             sys.exit(1)
         cmdhelper.wait_for_reboot()
 

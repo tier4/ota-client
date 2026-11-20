@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Callable, NoReturn, Protocol, runtime_checkable
 
 from otaclient._types import FailureType, OTAStatus, VersionDetail
 
@@ -208,11 +208,13 @@ class PartitionLayoutBootControllerProtocol(Protocol):
 
 @runtime_checkable
 class ParameterSetBootControllerProtocol(Protocol):
-    """What a boot controller provides, beside BootControllerProtocol, for a layout
-        that takes a parameter set: the current slot's version records, rewritten in
-        place, as a set is laid over the running slot without a slot switch.
+    """What a boot controller provides, beside BootControllerProtocol, for a
+        parameter set: the current slot's version records, rewritten in place, as a
+        set is laid over the running slot without a slot switch, and the reboot of
+        that same slot a set may end with.
 
-    A layout whose boot controller does not provide it refuses a parameter set.
+    Every boot controller provides it, the file-based and the partition-based
+        layouts alike: the set itself is laid the same way on all of them.
     """
 
     @abstractmethod
@@ -236,3 +238,14 @@ class ParameterSetBootControllerProtocol(Protocol):
         self, *, failure_type: FailureType, failure_reason: str
     ) -> None:
         """Persist a failure (and the status FAILURE) to the current slot."""
+
+    @abstractmethod
+    def reboot_current_slot(self) -> NoReturn:
+        """Reboot into the slot that runs now, with no slot switch: what a parameter
+            set whose changed slot's `apply` is `reboot` ends with, once its SUCCESS is
+            reported.
+
+        Does not return, as `finalizing_update`: the reboot is requested and this
+            process waits for the shutdown to terminate it, or exits 1 when the reboot
+            cannot be requested or does not come.
+        """

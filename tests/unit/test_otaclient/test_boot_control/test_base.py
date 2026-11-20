@@ -23,11 +23,12 @@ from pytest_mock import MockerFixture
 
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus, VersionDetail
-from otaclient.boot_control import _image_version_file
+from otaclient.boot_control import _base, _image_version_file
 from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control._ota_config_files import OTAConfigFiles
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
+from otaclient.boot_control.protocol import ParameterSetBootControllerProtocol
 
 
 def _make_concrete_boot_controller_cls(mocker: MockerFixture):
@@ -115,6 +116,24 @@ class TestBootControllerBase:
         )
 
         assert controller.load_version_detail() == _from_image
+
+    def test_it_takes_a_parameter_set(self, controller):
+        assert isinstance(controller, ParameterSetBootControllerProtocol)
+
+    def test_the_same_slot_is_rebooted_by_a_plain_reboot(
+        self, controller, mocker: MockerFixture
+    ):
+        """What a parameter set whose changed slot's apply is `reboot` ends with:
+        nothing was switched, so the slot that comes up is the running one."""
+        _reboot = mocker.patch.object(
+            _base.cmdhelper, "reboot", side_effect=SystemExit(1)
+        )
+        mocker.patch.object(
+            _base._env, "get_dynamic_client_chroot_path", return_value="/host_root"
+        )
+        with pytest.raises(SystemExit):
+            controller.reboot_current_slot()
+        _reboot.assert_called_once_with(chroot="/host_root")
 
     def test_on_operation_failure(self, controller):
         controller.on_operation_failure()

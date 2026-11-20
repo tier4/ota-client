@@ -513,9 +513,11 @@ class OTAClient:
                     if not isinstance(
                         self.boot_controller, ParameterSetBootControllerProtocol
                     ):
+                        # every boot controller provides it: not reached but by one
+                        #   that does not keep the slot's records for a set
                         raise ota_errors.ParameterSetNotApplicable(
-                            "the payload is a parameter set, which this layout does "
-                            "not take",
+                            "the payload is a parameter set, whose release this "
+                            "ECU's boot controller cannot record",
                             module=__name__,
                         )
                     _updater = OTAUpdaterForParameterSet(
