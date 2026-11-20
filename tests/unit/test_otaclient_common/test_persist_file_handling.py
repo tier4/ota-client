@@ -322,7 +322,15 @@ class TestExclude:
         assert not (_dst / "opt/data/ota/parameter-set").exists()
 
     @pytest.mark.parametrize(
-        "entry", (STORE, f"{STORE}/history.jsonl", f"{STORE}/applied/tree")
+        "entry",
+        (
+            STORE,
+            f"{STORE}/history.jsonl",
+            f"{STORE}/applied/tree",
+            # a way around it that names it otherwise
+            "/opt/data/maps/../ota/parameter-set",
+            f"{STORE}/./applied",
+        ),
     )
     def test_it_or_what_is_in_it_is_skipped(
         self, tmp_path: Path, handler: PersistFilesHandler, entry: str

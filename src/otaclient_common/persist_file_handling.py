@@ -75,12 +75,13 @@ class PersistFilesHandler:
         )
         self._src_root = Path(src_root)
         self._dst_root = Path(dst_root)
-        self._exclude = tuple(Path(_p) for _p in exclude)
+        self._exclude = tuple(Path(os.path.normpath(_p)) for _p in exclude)
 
     def _excluded(self, canonical_path: Path) -> bool:
-        return any(
-            canonical_path == _p or _p in canonical_path.parents for _p in self._exclude
-        )
+        """Whether <canonical_path> is excluded, or below what is: compared once
+        normalized, so that a `..` in an entry does not get around it."""
+        _path = Path(os.path.normpath(canonical_path))
+        return any(_path == _p or _p in _path.parents for _p in self._exclude)
 
     @staticmethod
     def map_uid_by_pwnam(
@@ -182,7 +183,9 @@ class PersistFilesHandler:
         for src_curdir, dnames, fnames in os.walk(src_path, followlinks=False):
             src_cur_dpath = Path(src_curdir)
             dst_cur_dpath = self._dst_root / src_cur_dpath.relative_to(self._src_root)
-            _canonical_cur = Path("/") / src_cur_dpath.relative_to(self._src_root)
+            _canonical_cur = Path(
+                os.path.normpath(Path("/") / src_cur_dpath.relative_to(self._src_root))
+            )
             if self._exclude:
                 # not walked into, nor copied
                 dnames[:] = [
