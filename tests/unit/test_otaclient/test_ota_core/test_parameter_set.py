@@ -1454,6 +1454,33 @@ class TestAnotherBasesSetAtUpdate:
         assert store.applied_record() == a_set_of_a
         boot_controller.store_failure_info.assert_not_called()
 
+    def test_not_committed_with_the_store_on_the_slots_own_root_a_set_is_taken(
+        self,
+        tmp_path: Path,
+        store,
+        host_root,
+        boot_controller,
+        a_set_of_a,
+        on_the_slots_own_root,
+    ):
+        """A store on the slot's own root holds no set of a base the ECU can fall back
+        to: the new set replaces it whatever the status."""
+        on_the_slots_own_root.return_value = True
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        make_updater(
+            tmp_path,
+            blobs=_blobs,
+            index=_index,
+            store=store,
+            host_root=host_root,
+            boot_controller=boot_controller,
+            base_committed=False,
+        ).execute()
+        _applied = store.applied_record()
+        assert _applied is not None and _applied.base_image_id == "image-b"
+
     def test_committed_the_set_is_bs_own_and_a_set_is_replaced(
         self, tmp_path: Path, store, host_root, boot_controller, a_set_of_a
     ):

@@ -1113,7 +1113,9 @@ class ParameterSetStore:
         read, is not laid. It is dropped once the running base is committed, with
         nothing unmounted (it was never laid on this base); until then (a trial boot
         of a new base that may still fall back to the base the set was applied on)
-        it is kept as it is, recorded once per boot. Otherwise the set is dropped
+        it is kept as it is, recorded once per boot. That is for a store the slots
+        share only: a store on the slot's own root holds no set of a base the ECU can
+        fall back to, and its set of another base is dropped whatever the status. Otherwise the set is dropped
         (the slots get the base's defaults, the slot reports the base) only when a
         slot cannot be mounted; an `apply` that fails after a slot was mounted again
         is recorded, the set kept. Nothing is laid, recorded or deleted when the
@@ -1128,7 +1130,9 @@ class ParameterSetStore:
         # whose set the store holds, before anything in it changes
         _set, _why = self.whose_set(running_image_id, slot_records=slot_records)
         if _why is not None:
-            if base_committed:
+            # only a store the slots share may hold the set of a base the ECU can
+            #   fall back to: one on this slot's own root came with this slot
+            if base_committed or not self.is_shared():
                 self._drop_another_bases(_set, _why)
             else:
                 self._keep_for_its_base(_set, _why)

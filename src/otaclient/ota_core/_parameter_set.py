@@ -337,7 +337,8 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         _, _why = self._store.whose_set(
             self._running_image_id, slot_records=self._boot_controller
         )
-        if _why is not None and not self._base_committed:
+        # a store on the slot's own root holds no set of a base to fall back to
+        if _why is not None and not self._base_committed and self._store.is_shared():
             raise ota_errors.ParameterSetNotApplicable(
                 "the store holds the set of the base this ECU may still fall back to "
                 f"({_why}): apply again once this base is committed",

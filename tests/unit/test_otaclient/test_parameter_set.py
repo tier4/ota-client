@@ -1689,6 +1689,34 @@ class TestTheCommand:
         _main.assert_not_called()
 
 
+class TestAnotherBasesSetInTheSlotsOwnStore:
+    """A store on the slot's own root that holds the set of another image (its
+    version file changed in place): no other slot can lay it, so it is dropped
+    whatever the status."""
+
+    def test_dropped_also_when_not_committed(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ):
+        _record = apply_set(store, PARAMS, base_image_id="image-a")
+        reboot(mounter)
+        runner.ran.clear()
+        assert store.mount_at_boot("image-b") is True
+        assert mounter.mounted == {}
+        assert (
+            store.check_at_startup(
+                "image-b",
+                slot_records=FakeSlotRecords("2.0.0", None),
+                base_committed=False,
+            )
+            is None
+        )
+        assert store.applied_record() is None
+        assert mounter.mounted == {} and runner.ran == []
+        _last = history(store)[-1]
+        assert _last["event"] == "dropped"
+        assert _last["set_manifest_digest"] == _record.set_manifest_digest
+
+
 class TestAnotherBasesSet:
     """A store the slots share holds the set base A applied while base B runs: the
     trial boot of B after a full update, which may still fall back to A."""
