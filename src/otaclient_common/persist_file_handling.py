@@ -21,6 +21,7 @@ import shutil
 import stat
 from functools import lru_cache, partial
 from pathlib import Path
+from typing import Iterable
 
 from otaclient_common._typing import StrOrPath
 from otaclient_common.linux import (
@@ -42,6 +43,9 @@ class PersistFilesHandler:
 
         src_uid -> src_name -> dst_name -> dst_uid
         src_gid -> src_name -> dst_name -> dst_gid
+
+    What is in <exclude> (canonical paths), and everything below it, is never
+    preserved, also when a persist entry holds it.
     """
 
     def __init__(
@@ -53,6 +57,7 @@ class PersistFilesHandler:
         *,
         src_root: StrOrPath,
         dst_root: StrOrPath,
+        exclude: Iterable[StrOrPath] = (),
     ):
         self._uid_mapper = lru_cache()(
             partial(
@@ -70,6 +75,12 @@ class PersistFilesHandler:
         )
         self._src_root = Path(src_root)
         self._dst_root = Path(dst_root)
+        self._exclude = tuple(Path(_p) for _p in exclude)
+
+    def _excluded(self, canonical_path: Path) -> bool:
+        return any(
+            canonical_path == _p or _p in canonical_path.parents for _p in self._exclude
+        )
 
     @staticmethod
     def map_uid_by_pwnam(
@@ -171,6 +182,15 @@ class PersistFilesHandler:
         for src_curdir, dnames, fnames in os.walk(src_path, followlinks=False):
             src_cur_dpath = Path(src_curdir)
             dst_cur_dpath = self._dst_root / src_cur_dpath.relative_to(self._src_root)
+            _canonical_cur = Path("/") / src_cur_dpath.relative_to(self._src_root)
+            if self._exclude:
+                # not walked into, nor copied
+                dnames[:] = [
+                    _d for _d in dnames if not self._excluded(_canonical_cur / _d)
+                ]
+                fnames = [
+                    _f for _f in fnames if not self._excluded(_canonical_cur / _f)
+                ]
 
             # ------ prepare current dir itself ------ #
             self._rm_target(dst_cur_dpath)
@@ -220,6 +240,9 @@ class PersistFilesHandler:
         """
         # persist_entry in persists.txt must be rooted at /
         path_relative_to_root = Path(_persist_entry).relative_to("/")
+        if self._excluded(Path("/") / path_relative_to_root):
+            logger.warning(f"{_persist_entry} is never preserved, skipped")
+            return
         src_path = self._src_root / path_relative_to_root
         dst_path = self._dst_root / path_relative_to_root
 

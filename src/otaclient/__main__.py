@@ -25,6 +25,12 @@ if __name__ == "__main__":
         from _otaclient_version import version
 
         print(version)
+    elif len(sys.argv) > 1 and sys.argv[1] == "mount-parameter-set":
+        # at boot, before local-fs.target: lay the applied parameter set, see
+        #   samples/otaclient-parameter-set.service_app
+        from otaclient.parameter_set import mount_parameter_set_command
+
+        sys.exit(mount_parameter_set_command())
     else:
         from otaclient import main
 

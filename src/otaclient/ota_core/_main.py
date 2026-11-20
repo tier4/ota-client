@@ -243,10 +243,13 @@ class OTAClient:
                 "previous OTA was aborted, report ABORTED for "
                 f"{ABORTED_STATUS_REPORT_DURATION}s before reporting INITIALIZED"
             )
-        # a parameter set was mounted at boot by its fstab entries: it is checked
-        #   here, and dropped (the slot reports its base again) if it does not hold
+        # a parameter set was mounted at boot by the boot-time unit: it is checked
+        #   here, once the boot controller concluded the boot, and dropped (the slot
+        #   reports its base again) if it does not hold
         if isinstance(self.boot_controller, ParameterSetBootControllerProtocol):
-            _check_parameter_set_at_startup(self.boot_controller)
+            _check_parameter_set_at_startup(
+                self.boot_controller, booted_ota_status=_boot_ctrl_loaded_ota_status
+            )
         self._reload_and_report_current_version()
         # NOTE: restore the failure info of the previous failed OTA, as otaclient
         #       might be restarted or the ECU might be rebooted after the OTA failure.
@@ -895,9 +898,16 @@ def ota_core_process(
 
 def _check_parameter_set_at_startup(
     boot_controller: ParameterSetBootControllerProtocol,
+    *,
+    booted_ota_status: OTAStatus,
 ) -> None:
     """Check the applied parameter set, if any; a dropped one gives the slot its
-    base's version records back. Never raises: otaclient starts either way."""
+    base's version records back. Never raises: otaclient starts either way.
+
+    A set of another base is dropped only once the running base is committed: booted
+    at SUCCESS or INITIALIZED. At any other status (a trial boot the boot controller
+    did not commit, say) the platform may still go back to the base the set was
+    applied on, which then lays it again."""
     try:
         _store = ParameterSetStore()
         if not any(
@@ -909,6 +919,8 @@ def _check_parameter_set_at_startup(
         _store.check_at_startup(
             _running.image_id if _running else "",
             slot_records=boot_controller,
+            base_committed=booted_ota_status
+            in (OTAStatus.SUCCESS, OTAStatus.INITIALIZED),
         )
     except Exception as e:
         logger.warning(f"failed to check the parameter set: {e!r}")

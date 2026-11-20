@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Mapping
 from unittest.mock import MagicMock
 
@@ -53,6 +54,9 @@ def _make_handler(
     dst_passwd: Mapping[str, int],
     src_group: Mapping[str, int],
     dst_group: Mapping[str, int],
+    src_root: Path | str = "/src",
+    dst_root: Path | str = "/dst",
+    exclude: tuple[str, ...] = (),
 ) -> PersistFilesHandler:
     """Construct PersistFilesHandler with patched ParsedPasswd/ParsedGroup.
 
@@ -72,8 +76,9 @@ def _make_handler(
         src_group_file="<unused>",
         dst_passwd_file="<unused>",
         dst_group_file="<unused>",
-        src_root="/src",
-        dst_root="/dst",
+        src_root=src_root,
+        dst_root=dst_root,
+        exclude=exclude,
     )
 
 
@@ -279,3 +284,64 @@ class TestPreservePersistEntryInputValidation:
     def test_non_absolute_entry_raises(self, bad_entry: str):
         with pytest.raises(ValueError):
             self.handler.preserve_persist_entry(bad_entry)
+
+
+class TestExclude:
+    """What is excluded is never preserved, also when an entry holds it: the
+    parameter set store under a listed /opt/data, say."""
+
+    STORE = "/opt/data/ota/parameter-set"
+
+    @pytest.fixture
+    def handler(self, tmp_path: Path, mocker: MockerFixture) -> PersistFilesHandler:
+        _src = tmp_path / "src"
+        (_src / "opt/data/ota/parameter-set/applied/tree").mkdir(parents=True)
+        (_src / "opt/data/ota/parameter-set/history.jsonl").write_text("{}\n")
+        (_src / "opt/data/ota/download").mkdir(parents=True)
+        (_src / "opt/data/ota/download/package").write_text("kept")
+        (_src / "opt/data/maps").mkdir()
+        (tmp_path / "dst").mkdir()
+        return _make_handler(
+            mocker,
+            src_passwd={"root": 0},
+            dst_passwd={"root": 0},
+            src_group={"root": 0},
+            dst_group={"root": 0},
+            src_root=_src,
+            dst_root=tmp_path / "dst",
+            exclude=(self.STORE,),
+        )
+
+    @pytest.mark.parametrize("entry", ("/opt/data", "/opt/data/ota", "/opt"))
+    def test_an_entry_that_holds_it_is_preserved_without_it(
+        self, tmp_path: Path, handler: PersistFilesHandler, entry: str
+    ):
+        handler.preserve_persist_entry(entry)
+        _dst = tmp_path / "dst"
+        assert (_dst / "opt/data/ota/download/package").read_text() == "kept"
+        assert not (_dst / "opt/data/ota/parameter-set").exists()
+
+    @pytest.mark.parametrize(
+        "entry", (STORE, f"{STORE}/history.jsonl", f"{STORE}/applied/tree")
+    )
+    def test_it_or_what_is_in_it_is_skipped(
+        self, tmp_path: Path, handler: PersistFilesHandler, entry: str
+    ):
+        handler.preserve_persist_entry(entry)
+        assert not (tmp_path / "dst/opt").exists()
+
+
+def test_the_updates_persist_files_never_take_the_parameter_set_store(
+    tmp_path: Path, mocker: MockerFixture
+):
+    from otaclient.configs.cfg import cfg
+    from otaclient.ota_core import _update_libs
+
+    _handler_cls = mocker.patch.object(_update_libs, "PersistFilesHandler")
+    _update_libs.process_persistents(
+        ["/opt/data"], active_slot_mp=tmp_path / "a", standby_slot_mp=tmp_path / "b"
+    )
+    assert _handler_cls.call_args.kwargs["exclude"] == (cfg.PARAMETER_SET_DPATH,)
+    _handler_cls.return_value.preserve_persist_entry.assert_called_once_with(
+        "/opt/data"
+    )

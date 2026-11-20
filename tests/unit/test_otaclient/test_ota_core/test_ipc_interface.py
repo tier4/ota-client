@@ -763,10 +763,12 @@ class TestParameterSetAtStartup:
         )
         _boot_controller = mocker.MagicMock(spec=BootControllerBase)
 
-        ota_core._main._check_parameter_set_at_startup(_boot_controller)
+        ota_core._main._check_parameter_set_at_startup(
+            _boot_controller, booted_ota_status=OTAStatus.SUCCESS
+        )
 
         _store.check_at_startup.assert_called_once_with(
-            "base-image", slot_records=_boot_controller
+            "base-image", slot_records=_boot_controller, base_committed=True
         )
 
     def test_an_image_without_a_version_file_is_an_empty_id(
@@ -778,10 +780,40 @@ class TestParameterSetAtStartup:
             f"{OTA_CORE_MAIN_MODULE}.load_image_version_detail", return_value=None
         )
         _boot_controller = mocker.MagicMock(spec=BootControllerBase)
-        ota_core._main._check_parameter_set_at_startup(_boot_controller)
-        _store.check_at_startup.assert_called_once_with(
-            "", slot_records=_boot_controller
+        ota_core._main._check_parameter_set_at_startup(
+            _boot_controller, booted_ota_status=OTAStatus.INITIALIZED
         )
+        _store.check_at_startup.assert_called_once_with(
+            "", slot_records=_boot_controller, base_committed=True
+        )
+
+    @pytest.mark.parametrize(
+        "status, committed",
+        (
+            (OTAStatus.SUCCESS, True),
+            (OTAStatus.INITIALIZED, True),
+            (OTAStatus.FAILURE, False),
+            (OTAStatus.UPDATING, False),
+            (OTAStatus.ROLLBACKING, False),
+            (OTAStatus.ABORTED, False),
+        ),
+    )
+    def test_the_base_is_committed_at_success_or_initialized(
+        self, mocker: pytest_mock.MockerFixture, status: OTAStatus, committed: bool
+    ):
+        """A trial boot the boot controller did not commit (FAILURE) may still fall
+        back to the base a set of another base was applied on: not dropped then."""
+        _store = mocker.MagicMock()
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.ParameterSetStore", return_value=_store)
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.load_image_version_detail",
+            return_value=VersionDetail(image_id="image-b"),
+        )
+        _boot_controller = mocker.MagicMock(spec=BootControllerBase)
+        ota_core._main._check_parameter_set_at_startup(
+            _boot_controller, booted_ota_status=status
+        )
+        assert _store.check_at_startup.call_args.kwargs["base_committed"] is committed
 
     def test_nothing_stored_is_not_checked(
         self, tmp_path: Path, mocker: pytest_mock.MockerFixture
@@ -792,8 +824,9 @@ class TestParameterSetAtStartup:
         _store.discard_dir = tmp_path / "discard"
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.ParameterSetStore", return_value=_store)
         _load = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.load_image_version_detail")
+        _boot_controller = mocker.MagicMock(spec=BootControllerBase)
         ota_core._main._check_parameter_set_at_startup(
-            mocker.MagicMock(spec=BootControllerBase)
+            _boot_controller, booted_ota_status=OTAStatus.SUCCESS
         )
         _load.assert_not_called()
         _store.check_at_startup.assert_not_called()
@@ -808,7 +841,8 @@ class TestParameterSetAtStartup:
             f"{OTA_CORE_MAIN_MODULE}.load_image_version_detail", return_value=None
         )
         ota_core._main._check_parameter_set_at_startup(
-            mocker.MagicMock(spec=BootControllerBase)
+            mocker.MagicMock(spec=BootControllerBase),
+            booted_ota_status=OTAStatus.SUCCESS,
         )
         _store.check_at_startup.assert_called_once()
 
@@ -825,7 +859,7 @@ class TestParameterSetAtStartup:
         _bc.get_booted_ota_status.return_value = OTAStatus.SUCCESS
         _bc.get_booted_failure_info.return_value = None
 
-        def _check(boot_controller) -> None:
+        def _check(boot_controller, *, booted_ota_status) -> None:
             boot_controller.load_version.return_value = "base-version"
 
         _checked = mocker.patch(
@@ -849,7 +883,8 @@ class TestParameterSetAtStartup:
             if type(_r.payload).__name__ == "SetOTAClientMetaReport"
         )
         if takes_a_set:
-            _checked.assert_called_once_with(_bc)
+            # once the boot controller concluded the boot, with what it concluded
+            _checked.assert_called_once_with(_bc, booted_ota_status=OTAStatus.SUCCESS)
             assert _meta.firmware_version == "base-version"
         else:
             _checked.assert_not_called()

@@ -40,6 +40,7 @@ Sample configuration files are available in the [`samples/`](samples/) directory
 - `ecu_info.yaml` - ECU information configuration
 - `proxy_info.yaml` - Proxy settings
 - `otaclient.service` - systemd service file
+- `otaclient-parameter-set.service_app` - systemd unit that mounts the applied parameter set at boot, for the app image (see [docs/parameter_set.md](docs/parameter_set.md))
 
 `ecu_info.yaml` and `proxy_info.yaml` are installed at `/boot/ota/`. At each OTA, the copies in the OTA image's `/boot/ota/` replace them:
 

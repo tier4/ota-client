@@ -435,7 +435,11 @@ def raise_on_download_resources_failed(exc: Exception) -> NoReturn:
 def process_persistents(
     _entries: Iterable[str], *, active_slot_mp: Path, standby_slot_mp: Path
 ) -> None:
-    """Implementation of preserving files accross slots at OTA post update."""
+    """Implementation of preserving files accross slots at OTA post update.
+
+    The parameter set store is never preserved, also when an entry holds it (/opt/data
+    listed, say): the new slot starts with its base's defaults, and a set of the old
+    base in it would be laid over the new one."""
     logger.info("start persist files handling...")
     _handler = PersistFilesHandler(
         src_passwd_file=active_slot_mp / "etc/passwd",
@@ -444,6 +448,7 @@ def process_persistents(
         dst_group_file=standby_slot_mp / "etc/group",
         src_root=active_slot_mp,
         dst_root=standby_slot_mp,
+        exclude=(cfg.PARAMETER_SET_DPATH,),
     )
 
     for persiste_entry in _entries:

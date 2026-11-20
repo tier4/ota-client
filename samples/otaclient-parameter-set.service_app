@@ -1,0 +1,34 @@
+[Unit]
+Description=OTAClient: mount the applied parameter set
+# runs before local-fs.target, so that every slot of the set is bound before
+#   anything that reads it starts: no default dependencies, only the mounts of the
+#   store and of the app image are waited for
+DefaultDependencies=no
+RequiresMountsFor=/opt/data/ota/parameter-set /opt/ota/client/otaclient.squashfs
+Conflicts=shutdown.target
+Before=local-fs.target shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=2min
+Environment=RUNNING_AS_APP_IMAGE=yes
+RootImage=/opt/ota/client/otaclient.squashfs
+ExecStart=/otaclient/otaclient mount-parameter-set
+
+BindPaths=/boot:/boot:rbind
+BindPaths=/dev:/dev
+BindPaths=/dev/shm:/dev/shm
+BindPaths=/etc:/etc
+BindPaths=/opt:/opt
+BindPaths=/proc:/proc
+BindPaths=/root:/root
+BindPaths=/sys:/sys:rbind
+BindPaths=/run:/run
+BindReadOnlyPaths=-/usr/share/ca-certificates:/usr/share/ca-certificates
+BindReadOnlyPaths=-/usr/local/share/ca-certificates:/usr/local/share/ca-certificates
+BindReadOnlyPaths=-/usr/share/zoneinfo:/usr/share/zoneinfo
+BindPaths=/:/host_root:rbind
+
+[Install]
+WantedBy=local-fs.target

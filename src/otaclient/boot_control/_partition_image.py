@@ -113,6 +113,38 @@ unknown platform is refused rather than defaulted."""
 
 OTA_STATUS_DNAME = "ota-status"
 
+DPI_PLATFORM_PATHS = (
+    "/opt/data/ota",
+    "/opt/data/ota-agent",
+    "/opt/data/ota-cache",
+    "/opt/data/ota-client",
+    "/opt/data/ota-du",
+    "/opt/data/ota-esync",
+    "/opt/data/ota-health",
+    "/opt/data/esync",
+)
+"""What the DPI and the platform it installs keep on optdata, besides otaclient's own
+state and staging directories (`PLATFORMS`): the eSync download and staged packages,
+the agent delivered on its own, otaclient's proxy cache and downloaded client (which
+/ota-cache and /.otaclient.squashfs link to), DRIVE Update's and the DPI's records,
+the health check's reason, and the eSync client's tree. From tier4/ota-esync-agent:
+deploy/common/ota-optdata-firstboot, deploy/install-agent.sh and
+deploy/*/install-platform.sh."""
+
+
+def platform_reserved_paths() -> tuple[str, ...]:
+    """What otaclient and the platform keep on a partition-based layout's persistent
+    storage, which a parameter set's slot must not hide: otaclient's status
+    directories (with the boot an update was staged in) and staging directory of
+    every platform, and the DPI's directories."""
+    _paths = {_p.staging_dir for _p in PLATFORMS.values()}
+    _paths.update(
+        str(Path(_p.state_dir) / OTA_STATUS_DNAME) for _p in PLATFORMS.values()
+    )
+    _paths.update(DPI_PLATFORM_PATHS)
+    return tuple(sorted(_paths))
+
+
 BOOT_ID_FPATH = "/proc/sys/kernel/random/boot_id"
 STAGED_IN_BOOT_FNAME = "staged-in-boot"
 """Written beside the status directories when an update starts, holding the boot id
