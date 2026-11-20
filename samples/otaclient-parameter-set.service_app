@@ -2,11 +2,19 @@
 Description=OTAClient: mount the applied parameter set
 # runs before local-fs.target, so that every slot of the set is bound before
 #   anything that reads it starts: no default dependencies, only the mounts of the
-#   store and of the app image are waited for
+#   store and of the app image are waited for, after the root is remounted.
+# needs an otaclient app image that has `mount-parameter-set` (released after
+#   v4.0.0rc6): an older one would start otaclient itself here.
+# a platform that prepares /opt/data at boot (who owns it included) is ordered
+#   before this unit by a drop-in (After=).
 DefaultDependencies=no
 RequiresMountsFor=/opt/data/ota/parameter-set /opt/ota/client/otaclient.squashfs
+After=local-fs-pre.target systemd-remount-fs.service
 Conflicts=shutdown.target
 Before=local-fs.target shutdown.target
+# nothing to lay without a set (a full update's mark lies beside applied/)
+ConditionPathExists=|/opt/data/ota/parameter-set/applied
+ConditionPathExists=|/opt/data/ota/parameter-set/previous
 
 [Service]
 Type=oneshot
