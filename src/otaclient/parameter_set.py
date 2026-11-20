@@ -331,13 +331,31 @@ class HostParameterSlotMounter:
         _on_host = self._on_host(mount_point)
         if os.path.isdir(_on_host):
             return False
-        _at = os.path.realpath(self._host_root)
-        for _component in mount_point.strip("/").split("/"):
-            _at = os.path.join(_at, _component)
-            if not os.path.isdir(_at):
-                # FileExistsError for a file in the way
-                os.mkdir(_at)
-                os.chmod(_at, MOUNT_POINT_MODE)
+        # each step is opened by its parent's fd and not followed when it is a link,
+        #   and only what was made here is chmod'ed, by its own fd: a directory swapped
+        #   for a link meanwhile fails (ELOOP), nothing outside the path changes
+        _fd = os.open(
+            os.path.realpath(self._host_root),
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
+        )
+        try:
+            for _component in mount_point.strip("/").split("/"):
+                try:
+                    os.mkdir(_component, MOUNT_POINT_MODE, dir_fd=_fd)
+                    _made = True
+                except FileExistsError:
+                    _made = False
+                _next = os.open(
+                    _component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=_fd,
+                )
+                os.close(_fd)
+                _fd = _next
+                if _made:
+                    os.fchmod(_fd, MOUNT_POINT_MODE)
+        finally:
+            os.close(_fd)
         return True
 
     def bind_ro(self, source: Path, mount_point: str) -> None:
@@ -377,7 +395,8 @@ def run_apply(command: str) -> None:
     run_command(
         [command],
         what=f"apply {command}",
-        chroot=_env.get_dynamic_client_chroot_path(),
+        # entering it resets the root to the host's: no chroot as well, as the
+        #   mounter does
         set_host_mnt_ns=_env.is_dynamic_client_running(),
         timeout=cfg.PARAMETER_SET_APPLY_TIMEOUT,
     )
@@ -571,7 +590,17 @@ class ParameterSetStore:
     def _unmount(self, mount_points: Iterable[str]) -> None:
         for _point in dict.fromkeys(mount_points):
             while self._mounter.is_mounted(_point):
+                # lazily, with whatever is mounted below it: said, as it goes
+                logger.info(f"taking the mount at {_point} away")
                 self._mounter.umount(_point)
+
+    def _set_aside_applied(self) -> None:
+        """Rename applied/ to discard/ (one rename, so that the set is not the
+        applied one any more whatever fails after); discard/ goes later, or at the
+        next start."""
+        shutil.rmtree(self.discard_dir, ignore_errors=True)
+        if self.applied_dir.exists():
+            os.replace(self.applied_dir, self.discard_dir)
 
     @staticmethod
     def _paths(*records: AppliedRecord | None) -> list[str]:
@@ -744,14 +773,16 @@ class ParameterSetStore:
                 #   or no set before): every slot the set put back fills changes
                 _changed = list(_back.slots) if _back else []
             _points = [*self._paths(_failed, _back), *self._fstab_mount_points()]
-            # the failed set first goes from what mounts at boot: a later boot does
-            #   not lay it again, whatever fails below (the set put back is written
-            #   in when it is in place)
-            self._write_fstab(None)
-            self._unmount(_points)
-            shutil.rmtree(self.applied_dir, ignore_errors=True)
+            # first, by renames, the failed set leaves applied/ (for discard/) and
+            #   the set put back (or none) takes its place, and what mounts at boot
+            #   is the set put back's: whatever fails below, a later boot and
+            #   otaclient's next start lay the set put back, not the failed one
+            self._set_aside_applied()
             if self.previous_dir.exists():
                 os.replace(self.previous_dir, self.applied_dir)
+            self._write_fstab(_back)
+            self._unmount(_points)
+            shutil.rmtree(self.discard_dir, ignore_errors=True)
             self._put_in_place(_back, _changed)
             self.record_event(
                 "rolled_back",
@@ -845,6 +876,7 @@ class ParameterSetStore:
             self._drop(None, f"the set's record is unreadable: {e!r}")
             return None
         if _record is None:
+            self._clear_stale_fstab()
             return None
         logger.info(
             f"parameter set {_record.describe()} is applied on image "
@@ -867,6 +899,14 @@ class ParameterSetStore:
                 "kept as they are until the next update of the set"
             )
 
+        if sorted(self._fstab_mount_points()) != sorted(self._paths(_record)):
+            # a switch or a drop cut short between its steps: what mounts at boot is
+            #   the applied set's again
+            logger.warning(
+                f"otaclient's fstab block is not {_record.describe()}'s: writing it"
+            )
+            self._write_fstab(_record)
+            self.record_event("fstab_restored", set=_record.set_manifest_digest)
         _unmounted = [
             _s for _s in _record.slots if not self._mounter.is_mounted(_s.path)
         ]
@@ -877,6 +917,23 @@ class ParameterSetStore:
 
         self._record_running(_record, _mismatch)
         return _record
+
+    def _clear_stale_fstab(self) -> None:
+        """No set is applied, but otaclient's fstab block mounts some (a roll back or
+        a drop cut short between its steps): it goes, and so does what it mounted."""
+        _stale = self._fstab_mount_points()
+        if not _stale:
+            return
+        logger.warning(
+            f"otaclient's fstab block mounts {_stale} with no set applied: clearing it"
+        )
+        try:
+            self._write_fstab(None)
+            self._unmount(_stale)
+            self.record_event("fstab_cleared", mount_points=_stale)
+        except Exception as e:
+            logger.error(f"failed to clear otaclient's fstab block: {e}")
+            self.record_event("fstab_clear_failed", error=str(e))
 
     def _finish_switch(self, slot_records: CurrentSlotRecords) -> None:
         try:
@@ -911,8 +968,9 @@ class ParameterSetStore:
             "mounting them and running their apply"
         )
         try:
-            for _slot in unmounted:
-                self._mounter.bind_ro(self.tree_of(_slot), _slot.path)
+            # the slots not mounted are `unmounted`: _mount lays those only, making
+            #   a mount point that has gone
+            self._mount(record)
         except Exception as e:
             self._drop(
                 record,
@@ -999,10 +1057,13 @@ class ParameterSetStore:
                 *(mount_points or []),
                 *self._fstab_mount_points(),
             ]
-            # first: a later boot does not lay the set again, whatever fails below
+            # first, by a rename, the set leaves applied/ and what mounts at boot
+            #   lays nothing: whatever fails below, neither a later boot nor
+            #   otaclient's next start lays it again
+            self._set_aside_applied()
             self._write_fstab(None)
             self._unmount(_points)
-            shutil.rmtree(self.applied_dir, ignore_errors=True)
+            shutil.rmtree(self.discard_dir, ignore_errors=True)
         except Exception as e:
             logger.error(f"failed to drop {_what}: {e}")
             self.record_event("drop_failed", reason=why, error=str(e), **_evidence)

@@ -18,7 +18,7 @@ Under `/opt/ota/parameter-set/` (`0700`, root only), in the running slot:
 | `previous/` | The set before, only while a switch is in progress. |
 | `discard/` | The set before, only while it is being deleted after a switch. |
 | `staging/` | A set being prepared. |
-| `history.jsonl` (`.1`) | One JSON object per line per event (`applied`, `running`, `dropped`, `tree_mismatch`, `apply_failed`, `apply_not_root_only`, `mount_point_made`, …), rotated at 1 MiB. |
+| `history.jsonl` (`.1`) | One JSON object per line per event (`applied`, `running`, `dropped`, `tree_mismatch`, `apply_failed`, `apply_not_root_only`, `mount_point_made`, `fstab_restored`, `fstab_cleared`, …), rotated at 1 MiB. |
 | `last-running-boot` | What was last recorded as `running`, so that it is recorded once per boot. |
 
 The mounts are also written into a managed block of `/etc/fstab` (`bind,ro,nosuid,nodev,nofail,x-systemd.before=local-fs.target`), so that a reboot lays the set again before anything reads the slots; a slot that cannot be mounted does not stop the boot, and otaclient mounts it again when it starts.
@@ -26,12 +26,13 @@ A full OTA writes a new slot from its image: the set is not carried over, only t
 
 A slot is never over what otaclient uses for itself: besides what every consumer reads (`/boot`, `/etc/fstab`, `/opt/ota`, `/usr/share/ota`), `/proc`, `/sys`, `/dev`, `/run`, `/host_root`, `/ota-cache` and otaclient's stores at `/.ota-*`; such a set is refused with `E463`.
 
-A slot directory the running image does not have is made (empty, root's, mode `0755` with each missing parent, whatever the umask) as the mount point, recorded as `mount_point_made`, and left in place when the slot is taken away; one the image has as a file, or behind a file or a symbolic link, refuses the set with `E463`.
-A slot's mount is taken away lazily: a program that runs from the slot's files keeps them until it exits.
+A slot directory the running image does not have is made (empty, root's, mode `0755` with each missing parent, whatever the umask) as the mount point, recorded as `mount_point_made`, and left in place when the slot is taken away; one the image has as a file, or behind a file or a symbolic link, or one that cannot be made there (a read-only filesystem), refuses the set with `E463`.
+A slot's mount is taken away lazily: a program that runs from the slot's files keeps them until it exits. So is whatever is mounted below it; each mount taken away is logged.
 
-A slot's `apply` runs as root, in the host's root, once the slot holds the set's new contents: it is the file at its path then, the set's own when the path is inside one of the set's slots (the set must carry it, executable), the running image's otherwise (which must have it, or the set is refused with `E463`).
-Nothing runs when a slot is taken away (an empty set, a set without that slot, a set dropped at startup): that takes effect when what reads the slot restarts. When a switch fails, the set before is put back and the `apply` of its slots runs again; with no set before, nothing runs. Whenever a set is undone or dropped, its entries go from `/etc/fstab` first, before its mounts: a later boot does not lay it again even when the rest fails.
-An `apply` of the running image that users other than root can change (the file, or a directory on its way, writable by them) is logged and recorded as `apply_not_root_only`, but not refused.
+A slot's `apply` runs as root, in the host's root and mount namespace, once the slot holds the set's new contents: it is the file at its path then, the set's own when the path is inside one of the set's slots (the set must carry it as an executable regular file that others cannot write, nor any directory from its slot down to it, or the parameter image is refused as invalid with `E422`), the running image's otherwise (which must have it, or the set is refused with `E463`).
+Nothing runs when a slot is taken away (an empty set, a set without that slot, a set dropped at startup): that takes effect when what reads the slot restarts. When a switch fails, the set before is put back and the `apply` of its slots that change back runs again; with no set before, nothing runs, and what an `apply` of the failed set restarted reads the failed set's files until it restarts again.
+Whenever a set is undone or dropped, it first leaves `applied/` (for `discard/`) and `/etc/fstab` is written for what is put back (or nothing), before the mounts are taken away: neither a later boot nor otaclient's next start lays it again, even when the rest fails. At each start, a managed block that is not the applied set's is written again (`fstab_restored`), and one left with no set applied is cleared (`fstab_cleared`).
+An `apply` that users other than root can change (the file, or a directory on its way, writable by them or not root's) is logged and recorded as `apply_not_root_only`, but not refused; for an `apply` the set carries, what is looked at is the running image's way to the slot that holds it.
 
 ## The Record
 

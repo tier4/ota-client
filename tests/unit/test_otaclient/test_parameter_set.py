@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 from hashlib import sha256
@@ -94,7 +95,7 @@ class FakeMounter:
         if self.fail_umount is True or (
             isinstance(self.fail_umount, set) and mount_point in self.fail_umount
         ):
-            raise OSError("target is busy")
+            raise OSError("umount failed")
         del self.mounted[mount_point]
 
     def shows(self, mount_point: str, directory: Path) -> bool:
@@ -281,9 +282,13 @@ class TestSwitch:
         assert mounter.made == [PARAMS.path]
         assert PARAMS.path in mounter.mounted
         assert "mount_point_made" in events(store)
-        # left in place: the next set has it
+        _made = [_e for _e in history(store) if _e["event"] == "mount_point_made"]
+        assert [(_e["slot"], _e["path"]) for _e in _made] == [
+            (PARAMS.name, PARAMS.path)
+        ]
+        # nothing made: nothing recorded
         apply_set(store, PARAMS, content="v2")
-        assert mounter.made == [PARAMS.path]
+        assert events(store).count("mount_point_made") == 1
 
     def test_a_new_set_without_a_slot_gives_it_back_the_base_defaults(
         self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
@@ -347,7 +352,7 @@ class TestSwitch:
         assert fstab_block(store) == []
         assert mounter.mounted == {}
 
-    def test_a_busy_slot_leaves_the_applied_set_where_it_was(
+    def test_an_unmount_that_fails_leaves_the_applied_set_where_it_was(
         self, store: ParameterSetStore, mounter: FakeMounter
     ):
         """Nothing was moved yet: the old set stays, mounted."""
@@ -362,18 +367,35 @@ class TestSwitch:
         assert PARAMS.path in mounter.mounted
         assert len(fstab_block(store)) == 1
 
-    def test_a_failed_first_set_leaves_no_fstab_entry_even_if_it_stays_mounted(
+    def test_a_first_set_whose_apply_fails_runs_nothing_after(
         self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
     ):
-        """Undone after its apply failed, with nothing before to put back: whatever
-        fails after, a later boot does not lay it again."""
+        """Undone with nothing before to put back: the slot goes back to the base's
+        and nothing runs for it."""
+        stage(store, PARAMS)
+        runner.fail_times = 1
+        with pytest.raises(ParameterSetFailed) as _e:
+            store.switch()
+        assert _e.value.restored
+        assert runner.ran == [PARAMS.apply]
+        assert mounter.mounted == {}
+        assert fstab_block(store) == []
+        assert store.applied_record() is None
+
+    def test_a_failed_first_set_is_set_aside_even_if_it_stays_mounted(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ):
+        """Undone after its apply failed, its mount not taken away: it is not the
+        applied set any more, and nothing mounts it at boot."""
         stage(store, PARAMS)
         runner.fail_times = 1
         mounter.fail_umount = True
         with pytest.raises(ParameterSetFailed) as _e:
             store.switch()
         assert not _e.value.restored
+        assert PARAMS.path in mounter.mounted
         assert fstab_block(store) == []
+        assert store.applied_record() is None
         assert runner.ran == [PARAMS.apply], "nothing runs for the slot taken away"
 
     def test_a_set_that_cannot_be_put_back_says_so(
@@ -461,7 +483,7 @@ class TestSwitch:
         apply_set(store, _moved)
         assert runner.ran == ["/usr/bin/x"]
 
-    def test_a_partly_busy_unmount_mounts_back_what_came_off(
+    def test_a_partly_failed_unmount_mounts_back_what_came_off(
         self, store: ParameterSetStore, mounter: FakeMounter
     ):
         """The first slot comes off, the second is busy: nothing was moved yet, and
@@ -606,6 +628,22 @@ class TestAtStartup:
         assert runner.ran == [PARAMS.apply]
         assert _f.read_text() == "individual_params: v1\n"
         assert store.check_tree(_record) is None
+
+    def test_files_not_the_sets_run_only_the_new_sets_slots(
+        self, store: ParameterSetStore, runner: FakeRunner
+    ):
+        """Every slot of the new set is applied, none of the one it takes away."""
+        apply_set(store, PARAMS, LAUNCH)
+        (
+            store.applied_dir
+            / TREE_DNAME
+            / PARAMS.relpath
+            / "default"
+            / "vehicle.param.yaml"
+        ).write_text("tampered\n")
+        runner.ran.clear()
+        apply_set(store, PARAMS)
+        assert runner.ran == [PARAMS.apply]
 
     def test_the_same_set_again_is_not_applied_when_its_files_hold(
         self, store: ParameterSetStore, runner: FakeRunner
@@ -810,6 +848,83 @@ class TestAtStartup:
         assert "drop_failed" in events(store)
         assert fstab_block(store) == []
 
+    def test_a_roll_back_whose_unmount_fails_puts_the_set_before_in_place(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ):
+        """The set put back is the applied one and what mounts at boot whatever
+        fails after: the next start lays it, every slot of it."""
+        _old = apply_set(store, PARAMS, LAUNCH)
+        stage(store, PARAMS, LAUNCH, contents={"individual_params": "v2"})
+
+        def _apply_fails_then_unmounts_do(command: str) -> None:
+            runner.ran.append(command)
+            mounter.fail_umount = True  # the roll back's, not the switch's
+            raise RuntimeError(f"{command} failed")
+
+        store._runner = _apply_fails_then_unmounts_do  # type: ignore[assignment]
+        with pytest.raises(ParameterSetFailed) as _e:
+            store.switch()
+        store._runner = runner
+        assert not _e.value.restored
+        assert store.applied_record() == _old
+        assert len(fstab_block(store)) == 2
+        assert not store.previous_dir.exists()
+
+        # the boot after: the fstab block lays the set put back
+        mounter.fail_umount = False
+        mounter.mounted.clear()
+        for _slot in (PARAMS, LAUNCH):
+            mounter.bind_ro(store.tree_of(_slot), _slot.path)
+        runner.ran.clear()
+        assert (
+            store.check_at_startup(BASE_ID, slot_records=self.records_of(_old)) == _old
+        )
+        assert not store.discard_dir.exists()
+        assert runner.ran == []
+
+    def test_a_dropped_set_whose_unmount_fails_is_not_laid_again(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ):
+        _record = apply_set(store, PARAMS)
+        mounter.fail_umount = True
+        store.check_at_startup("another-image", slot_records=self.records_of(_record))
+        assert "drop_failed" in events(store)
+        assert store.applied_record() is None
+        # the next start: nothing to lay
+        mounter.fail_umount = False
+        mounter.mounted.clear()
+        runner.ran.clear()
+        assert (
+            store.check_at_startup(BASE_ID, slot_records=self.records_of(_record))
+            is None
+        )
+        assert runner.ran == [] and mounter.mounted == {}
+
+    def test_an_fstab_block_that_is_not_the_sets_is_written_again(
+        self, store: ParameterSetStore, mounter: FakeMounter
+    ):
+        _record = apply_set(store, PARAMS)
+        store.fstab.write_text(FSTAB)
+        assert (
+            store.check_at_startup(BASE_ID, slot_records=self.records_of(_record))
+            == _record
+        )
+        assert len(fstab_block(store)) == 1
+        assert "fstab_restored" in events(store)
+
+    def test_an_fstab_block_with_no_set_applied_is_cleared(
+        self, store: ParameterSetStore, mounter: FakeMounter
+    ):
+        _record = apply_set(store, PARAMS)
+        shutil.rmtree(store.applied_dir)
+        assert (
+            store.check_at_startup(BASE_ID, slot_records=self.records_of(_record))
+            is None
+        )
+        assert fstab_block(store) == []
+        assert mounter.mounted == {}
+        assert "fstab_cleared" in events(store)
+
     def test_a_roll_back_that_fails_is_not_recorded_as_recovered(
         self, store: ParameterSetStore, mounter: FakeMounter
     ):
@@ -930,37 +1045,45 @@ class TestHostCommands:
         for _made in ("opt/v", "opt/v/o"):
             assert stat.S_IMODE((_host / _made).stat().st_mode) == 0o755
 
+    def test_a_mount_point_leaves_the_mode_of_what_is_there(self, tmp_path: Path):
+        _host = tmp_path / "host_root"
+        (_host / "opt").mkdir(parents=True)
+        (_host / "opt").chmod(0o750)
+        HostParameterSlotMounter(str(_host)).make_mount_point("/opt/v")
+        assert stat.S_IMODE((_host / "opt").stat().st_mode) == 0o750
+
     def test_a_mount_point_behind_a_link_or_a_file_is_not_made(self, tmp_path: Path):
         _host = tmp_path / "host_root"
         (_host / "opt").mkdir(parents=True)
         (_host / "elsewhere").mkdir()
         (_host / "opt" / "vehicle").symlink_to(_host / "elsewhere")
         _mounter = HostParameterSlotMounter(str(_host))
+        (_host / "elsewhere").chmod(0o700)
         with pytest.raises(OSError, match="symbolic link"):
             _mounter.make_mount_point("/opt/vehicle/overlay")
         assert not (_host / "elsewhere" / "overlay").exists()
+        assert stat.S_IMODE((_host / "elsewhere").stat().st_mode) == 0o700
         (_host / "opt" / "vehicle").unlink()
         (_host / "opt" / "vehicle").write_text("a file\n")
         with pytest.raises(OSError):
             _mounter.make_mount_point("/opt/vehicle/overlay")
 
-    def test_apply_runs_in_the_hosts_root_with_a_timeout(self, mocker: MockerFixture):
-        """In the host's mount namespace too: an apply the set carries is a file on
-        a slot's mount, which an app image's own view may not have."""
+    @pytest.mark.parametrize("dynamic", (True, False))
+    def test_apply_runs_in_the_hosts_root_with_a_timeout(
+        self, mocker: MockerFixture, dynamic: bool
+    ):
+        """From an app image, in the host's mount namespace (which is its root too):
+        an apply the set carries is a file on a slot's mount, which the app image's
+        own view may not have."""
         _run = mocker.patch.object(parameter_set, "subprocess_run_wrapper")
         mocker.patch.object(
-            parameter_set._env,
-            "get_dynamic_client_chroot_path",
-            return_value="/host_root",
-        )
-        mocker.patch.object(
-            parameter_set._env, "is_dynamic_client_running", return_value=True
+            parameter_set._env, "is_dynamic_client_running", return_value=dynamic
         )
         run_apply("/opt/autoware/bin/apply-parameter-set")
         _run.assert_called_once()
         assert _run.call_args.args[0] == ["/opt/autoware/bin/apply-parameter-set"]
-        assert _run.call_args.kwargs["chroot"] == "/host_root"
-        assert _run.call_args.kwargs["set_host_mnt_ns"] is True
+        assert "chroot" not in _run.call_args.kwargs
+        assert _run.call_args.kwargs["set_host_mnt_ns"] is dynamic
         assert (
             _run.call_args.kwargs["timeout"]
             == parameter_set.cfg.PARAMETER_SET_APPLY_TIMEOUT
