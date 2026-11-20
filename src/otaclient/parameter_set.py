@@ -330,6 +330,7 @@ class ParameterSlotMounter(Protocol):
     def make_mount_point(self, mount_point: str) -> bool: ...
     def bind_ro(self, source: Path, mount_point: str) -> None: ...
     def umount(self, mount_point: str) -> None: ...
+    def shows(self, mount_point: str, directory: Path) -> bool: ...
 
 
 class ApplyRunner(Protocol):
@@ -377,6 +378,16 @@ class HostParameterSlotMounter:
             return True
         except Exception:
             return False
+
+    def shows(self, mount_point: str, directory: Path) -> bool:
+        """Whether what is mounted at `mount_point` is `directory` (a bind of it): the
+        same inode on the same device. False when either cannot be looked at."""
+        try:
+            _at = os.stat(self._on_host(mount_point))
+            _dir = os.stat(directory)
+        except OSError:
+            return False
+        return (_at.st_dev, _at.st_ino) == (_dir.st_dev, _dir.st_ino)
 
     def _on_host(self, mount_point: str) -> str:
         """The slot's path as declared, on the host, not a link someone put there."""
@@ -1218,18 +1229,29 @@ class ParameterSetStore:
         return True
 
     def _drop_another_bases(self, record: AppliedRecord | None, why: str) -> None:
-        """Drop a set that is not the running base's, the running base committed: it
-        was never laid on this base, so nothing at its slots' paths is unmounted
-        (what is mounted there is this base's own); the set and a switch it left
-        unfinished leave the store, and so does a staged full update's mark."""
+        """Drop a set that is not the running base's, the running base committed: the
+        set and a switch it left unfinished leave the store, and so does a staged
+        full update's mark. It is not laid on this base at boot, so what is mounted
+        at its slots' paths is this base's own and stays; only a bind of the set's
+        own directory (laid in this boot, before the running image changed in
+        place) is taken away, once."""
         _what = record.describe() if record else "the applied set"
-        logger.warning(
-            f"{_what} is not this base's ({why}): dropped, nothing unmounted, it was "
-            "never laid on this base"
-        )
+        logger.warning(f"{_what} is not this base's ({why}): dropped")
         _evidence = record.evidence() if record else {}
+        _ours: list[str] = []
+        for _slot in record.slots if record else []:
+            try:
+                if self._mounter.is_mounted(_slot.path) and self._mounter.shows(
+                    _slot.path, self.tree_of(_slot)
+                ):
+                    _ours.append(_slot.path)
+            except Exception as e:
+                logger.warning(f"cannot tell what is mounted at {_slot.path}: {e!r}")
         try:
             self._set_aside_applied()
+            for _point in _ours:
+                logger.info(f"taking the set's own mount at {_point} away")
+                self._mounter.umount(_point)
             shutil.rmtree(self.discard_dir, ignore_errors=True)
             shutil.rmtree(self.previous_dir, ignore_errors=True)
             remove_file(self.root / BASE_CHANGE_FNAME)

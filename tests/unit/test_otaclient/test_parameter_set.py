@@ -104,6 +104,8 @@ class FakeMounter:
 
     def shows(self, mount_point: str, directory: Path) -> bool:
         """Whether the bind at `mount_point` is of `directory` as it is now."""
+        if mount_point not in self.mounted or not directory.exists():
+            return False
         return self.mounted[mount_point][1] == directory.stat().st_ino
 
 
@@ -1250,6 +1252,17 @@ class TestHistory:
 class TestHostCommands:
     """What runs on the device, as the commands it is."""
 
+    def test_shows_tells_a_bind_of_the_directory(self, tmp_path: Path):
+        """A bind shows the directory it was made from: the same inode on the same
+        device; anything else, or a path that cannot be looked at, is not it."""
+        (tmp_path / "opt/x").mkdir(mode=0o755, parents=True)
+        (tmp_path / "opt/y").mkdir(mode=0o755)
+        _mounter = parameter_set.HostParameterSlotMounter(host_root=str(tmp_path))
+        assert _mounter.shows("/opt/x", tmp_path / "opt/x")
+        assert not _mounter.shows("/opt/x", tmp_path / "opt/y")
+        assert not _mounter.shows("/opt/missing", tmp_path / "opt/x")
+        assert not _mounter.shows("/opt/x", tmp_path / "opt/missing")
+
     def test_mounts_go_to_the_hosts_namespace(self, mocker: MockerFixture):
         _run = mocker.patch.object(parameter_set, "subprocess_run_wrapper")
         mocker.patch.object(
@@ -1278,7 +1291,11 @@ class TestHostCommands:
         (tmp_path / "real").mkdir()
         (tmp_path / "link").symlink_to(tmp_path / "real")
         with pytest.raises(OSError, match="symbolic link"):
-            HostParameterSlotMounter().bind_ro(tmp_path / "src", str(tmp_path / "link"))
+            # the host's root given: what the environment says otherwise does not
+            #   matter here (alone, this test got a dynamic client's /host_root)
+            HostParameterSlotMounter("/").bind_ro(
+                tmp_path / "src", str(tmp_path / "link")
+            )
         _run.assert_not_called()
 
     def test_a_mount_point_the_host_lacks_is_made(self, tmp_path: Path):
@@ -1715,6 +1732,24 @@ class TestAnotherBasesSetInTheSlotsOwnStore:
         _last = history(store)[-1]
         assert _last["event"] == "dropped"
         assert _last["set_manifest_digest"] == _record.set_manifest_digest
+
+    def test_its_own_bind_in_this_boot_goes_and_the_bases_mount_stays(
+        self, store: ParameterSetStore, mounter: FakeMounter, tmp_path: Path
+    ):
+        """Laid in this boot before the version file changed in place: the set's own
+        bind is taken away with it. A mount of the base's own at another slot path
+        of the set stays."""
+        apply_set(store, PARAMS, LAUNCH, base_image_id="image-a")
+        _bases = tmp_path / "bases-own"
+        _bases.mkdir()
+        mounter.mounted[LAUNCH.path] = (_bases, _bases.stat().st_ino)
+        store.check_at_startup(
+            "image-b",
+            slot_records=FakeSlotRecords("2.0.0", None),
+            base_committed=True,
+        )
+        assert PARAMS.path not in mounter.mounted
+        assert mounter.shows(LAUNCH.path, _bases)
 
 
 class TestAnotherBasesSet:
