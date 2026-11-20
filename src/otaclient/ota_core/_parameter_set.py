@@ -53,6 +53,7 @@ from otaclient import errors as ota_errors
 from otaclient._types import UpdatePhase, VersionDetail
 from otaclient.boot_control._image_version_file import running_image_id
 from otaclient.boot_control._platform_paths import (
+    APPLY_MAY_BE_IN,
     OTA_PLATFORM_PATHS,
     platform_reserved_paths,
 )
@@ -353,6 +354,8 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         release on (with /opt/data/ota, /etc/ota and /usr/lib/ota among its
         RESERVED_PATHS)."""
         for _top in (*RESERVED_PATHS, *OTA_PLATFORM_PATHS, *reserved):
+            if _top in APPLY_MAY_BE_IN:
+                continue
             if _within(apply, _top):
                 raise ota_errors.ParameterSetNotApplicable(
                     f"slot {name!r}: its apply {apply} is in {_top}, which otaclient "

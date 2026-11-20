@@ -58,6 +58,11 @@ optdata), deploy/install-agent.sh (the DPI, its wrapper and directories) and
 deploy/*/install-platform.sh (the links into optdata, the boot scripts). The eSync
 download and staged packages are under /opt/data/ota (`OTA_PLATFORM_PATHS`)."""
 
+APPLY_MAY_BE_IN = ("/usr/local/sbin",)
+"""Reserved for a slot (one there would hide the DPI's wrapper and the platform's boot
+scripts), but where a base's own `apply` may live: an `apply` there runs the base's
+program, as any other of the base's."""
+
 # TODO(ota-image-libs>0.8.0): in its RESERVED_PATHS from the next release on
 OTA_PLATFORM_PATHS = ("/opt/data/ota", "/etc/ota", "/usr/lib/ota")
 """What the image library reserves from its next release on: the OTA stores on

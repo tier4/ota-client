@@ -1314,12 +1314,12 @@ class TestWhatTheEcuNeeds:
         """What runs there is otaclient's or the platform's.
 
         TODO(ota-image-libs>0.8.0): refused by the image library from then on."""
-        _apply = host_root / "usr/local/sbin/apply-parameters"
+        _apply = host_root / "usr/lib/ota/apply-parameters"
         _apply.parent.mkdir(mode=0o755, parents=True)
         _apply.write_text("#!/bin/sh\n")
         _apply.chmod(0o755)
         _slot = ParameterSlot(
-            name=PARAMS.name, path=PARAMS.path, apply="/usr/local/sbin/apply-parameters"
+            name=PARAMS.name, path=PARAMS.path, apply="/usr/lib/ota/apply-parameters"
         )
         with pytest.raises(
             ota_errors.ParameterSetNotApplicable, match="its apply .* is in"
@@ -1327,6 +1327,22 @@ class TestWhatTheEcuNeeds:
             an_updater_with_slots(
                 tmp_path, store, host_root, boot_controller, _slot
             )._check_fits_the_running_base()
+
+    def test_an_apply_of_the_base_in_usr_local_sbin_is_taken(
+        self, tmp_path: Path, store, host_root, boot_controller
+    ):
+        """No slot may be over /usr/local/sbin (the DPI's wrapper is there), but a
+        base's own `apply` may be one of its programs there."""
+        _apply = host_root / "usr/local/sbin/apply-parameters"
+        _apply.parent.mkdir(mode=0o755, parents=True)
+        _apply.write_text("#!/bin/sh\n")
+        _apply.chmod(0o755)
+        _slot = ParameterSlot(
+            name=PARAMS.name, path=PARAMS.path, apply="/usr/local/sbin/apply-parameters"
+        )
+        an_updater_with_slots(
+            tmp_path, store, host_root, boot_controller, _slot
+        )._check_fits_the_running_base()
 
     def test_the_dpi_this_ecu_names_is_reserved(
         self, tmp_path: Path, store, host_root, boot_controller, mocker: MockerFixture
