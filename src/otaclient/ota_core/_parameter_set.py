@@ -37,7 +37,12 @@ from ota_image_libs.v1.parameter_set.schema import (
     ParameterSetConfig,
     ParameterSetManifest,
 )
-from ota_image_libs.v1.parameter_set.slots import APPLY_REBOOT, check_slots_in_tree
+from ota_image_libs.v1.parameter_set.slots import (
+    APPLY_REBOOT,
+    apply_comes_with_set,
+    check_applies_in_set,
+    check_slots_in_tree,
+)
 from typing_extensions import Unpack
 
 from ota_metadata.errors import ImageMetadataInvalid
@@ -196,12 +201,14 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             cond.wait()
 
     def _check_fits_the_running_base(self) -> None:
-        """The running image has each slot's directory and each `apply`, and nothing
-        but otaclient's own set is mounted on a slot: a set the image has no room
-        for is refused before anything changes.
+        """The running image has room for each slot (a directory, or none: otaclient
+        makes the mount point) and each `apply` of the base, and nothing but
+        otaclient's own set is mounted on a slot: a set the image has no room for is
+        refused before anything changes. An `apply` the set carries (inside its
+        slots) is checked against its layer once unpacked.
 
-        What the applied set covers is not the base's: a slot or an `apply` of the new
-        set inside a slot of the applied one (and not that slot itself) would be
+        What the applied set covers is not the base's: a slot or an `apply` of the
+        base inside a slot of the applied one (and not that slot itself) would be
         checked against the set before, and is refused too.
         """
         assert self.config is not None
@@ -217,7 +224,10 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         _applied = self._store.applied_record()
         _covered = [_s.path for _s in _applied.slots] if _applied else []
         for _slot in self.config.slots:
-            for _path, _what in ((_slot.path, "path"), (_slot.apply, "apply")):
+            _of_base = [(_slot.path, "path")]
+            if not apply_comes_with_set(_slot, self.config.slots):
+                _of_base.append((_slot.apply, "apply"))
+            for _path, _what in _of_base:
                 _over = next(
                     (_c for _c in _covered if _path.startswith(_c + "/")), None
                 )
@@ -237,11 +247,17 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
     def _note_applies_others_can_change(self) -> None:
         """An `apply` runs as root: one that users other than root can change (the
         file or a directory on its way, writable by them) is logged and recorded.
-        Not refused: images in use have such directories (e.g. /opt/autoware owned by
-        the autoware user)."""
+        Not refused: images in use have such directories (an application's tree owned
+        by the application's user)."""
         assert self.config is not None
         _root = os.path.realpath(self._host_root)
-        for _apply in dict.fromkeys(_s.apply for _s in self.config.slots):
+        _of_base = (
+            _s.apply
+            for _s in self.config.slots
+            # one the set carries is in otaclient's store, root's only
+            if not apply_comes_with_set(_s, self.config.slots)
+        )
+        for _apply in dict.fromkeys(_of_base):
             if _apply == APPLY_REBOOT:
                 continue
             _writable: list[str] = []
@@ -296,6 +312,12 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             raise ota_errors.OTAImageInvalid(
                 f"the parameter set's config does not agree with its layer: {e}",
                 module=__name__,
+            ) from e
+        try:
+            check_applies_in_set(_tree, self.config.slots)
+        except ValueError as e:
+            raise ota_errors.OTAImageInvalid(
+                f"the parameter set does not carry its apply: {e}", module=__name__
             ) from e
         return _info
 
