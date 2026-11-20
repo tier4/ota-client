@@ -154,6 +154,9 @@ nothing in it runs with privilege it does not have, and it holds no device."""
 MOUNT_COMMAND_TIMEOUT = 60
 """Seconds a mount command may take: the boot waits for the mounts, and must not hang
 on one."""
+STAGE_DPATH = "/run/otaclient-parameter-set"
+"""Where, on the host, a slot's bind is made read-only before it goes to the slot's
+path: a private tmpfs mounted for each bind and taken away after it (`bind_ro`)."""
 STDERR_TAIL = 1024
 """How much of a failed command's error output is kept in its error, from the end."""
 
@@ -433,36 +436,70 @@ class HostParameterSlotMounter:
             os.close(_fd)
         return True
 
-    def bind_ro(self, source: Path, mount_point: str) -> None:
-        self._on_host(mount_point)
+    def _run(self, cmd: list[str], *, what: str) -> None:
         run_command(
-            ["mount", "--bind", str(source), mount_point],
-            what=f"binding {mount_point}",
+            cmd,
+            what=what,
             set_host_mnt_ns=self._host_mnt_ns(),
             timeout=MOUNT_COMMAND_TIMEOUT,
         )
-        try:
-            run_command(
-                ["mount", "-o", f"remount,bind,{MOUNT_OPTIONS}", mount_point],
-                what=f"making {mount_point} read-only",
-                set_host_mnt_ns=self._host_mnt_ns(),
-                timeout=MOUNT_COMMAND_TIMEOUT,
+
+    def bind_ro(self, source: Path, mount_point: str) -> None:
+        """Bind `source` at `mount_point`, read-only, nosuid and nodev.
+
+        The bind is made in a private staging mount (STAGE_DPATH), made read-only
+            there, and only then moved to the slot's path. A bind made at the slot's
+            path reaches the peers of the mount it is under (a bind of the root, the
+            view of a service or a container that receives the host's mounts) the
+            moment it is made, writable, with setuid and devices, and the remount that
+            makes it read-only does not reach them. A mount that is moved reaches them
+            as it is. Nothing is left at the slot's path when a step fails.
+        """
+        self._on_host(mount_point)
+        _staged = f"{STAGE_DPATH}/slot"
+        if self.is_mounted(STAGE_DPATH):
+            # left by an otaclient stopped in the middle of a bind
+            self._run(
+                ["umount", "--lazy", STAGE_DPATH], what="clearing the staging mount"
             )
-        except Exception:
-            # not left bound writable: the bind goes before the failure is raised
+        self._run(["mkdir", "-p", STAGE_DPATH], what="making the staging directory")
+        self._run(
+            ["mount", "-t", "tmpfs", "-o", "mode=0700,size=64k"]
+            + ["otaclient-parameter-set", STAGE_DPATH],
+            what="mounting the staging tmpfs",
+        )
+        try:
+            # private before anything is mounted in it: the bind and its remount
+            #   reach no peer
+            self._run(
+                ["mount", "--make-private", STAGE_DPATH],
+                what="making the staging mount private",
+            )
+            self._run(["mkdir", _staged], what="making the staging mount point")
+            self._run(
+                ["mount", "--bind", str(source), _staged],
+                what=f"binding {mount_point}",
+            )
+            self._run(
+                ["mount", "-o", f"remount,bind,{MOUNT_OPTIONS}", _staged],
+                what=f"making {mount_point} read-only",
+            )
+            self._run(
+                ["mount", "--move", _staged, mount_point],
+                what=f"moving the read-only bind to {mount_point}",
+            )
+        finally:
+            # with the bind when it did not move: nothing left bound writable
             with contextlib.suppress(Exception):
-                self.umount(mount_point)
-            raise
+                self._run(
+                    ["umount", "--lazy", STAGE_DPATH],
+                    what="unmounting the staging tmpfs",
+                )
 
     def umount(self, mount_point: str) -> None:
         # lazy: a program that runs from the slot's files (what an overlay holds)
         #   keeps them until it exits, rather than the slot staying as it was
-        run_command(
-            ["umount", "--lazy", mount_point],
-            what=f"unmounting {mount_point}",
-            set_host_mnt_ns=self._host_mnt_ns(),
-            timeout=MOUNT_COMMAND_TIMEOUT,
-        )
+        self._run(["umount", "--lazy", mount_point], what=f"unmounting {mount_point}")
 
 
 def run_apply(command: str) -> None:

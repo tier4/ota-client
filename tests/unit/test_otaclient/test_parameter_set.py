@@ -1249,6 +1249,32 @@ class TestHistory:
         assert (store.root / "history.jsonl.1").exists()
 
 
+_STAGE = parameter_set.STAGE_DPATH
+_STAGED = f"{_STAGE}/slot"
+
+
+def staged_bind(tree: str, mount_point: str) -> list[list[str]]:
+    """The commands of a bind of `tree` at `mount_point` when no staging mount is
+    left over (its findmnt finds nothing)."""
+    return [
+        ["findmnt", "--noheadings", "--mountpoint", _STAGE],
+        ["mkdir", "-p", _STAGE],
+        ["mount", "-t", "tmpfs", "-o", "mode=0700,size=64k"]
+        + ["otaclient-parameter-set", _STAGE],
+        ["mount", "--make-private", _STAGE],
+        ["mkdir", _STAGED],
+        ["mount", "--bind", tree, _STAGED],
+        ["mount", "-o", "remount,bind,ro,nosuid,nodev", _STAGED],
+        ["mount", "--move", _STAGED, mount_point],
+        ["umount", "--lazy", _STAGE],
+    ]
+
+
+def _findmnt_finds_nothing(cmd, **kwargs):
+    if cmd[0] == "findmnt":
+        raise subprocess.CalledProcessError(1, cmd)
+
+
 class TestHostCommands:
     """What runs on the device, as the commands it is."""
 
@@ -1264,7 +1290,9 @@ class TestHostCommands:
         assert not _mounter.shows("/opt/x", tmp_path / "opt/missing")
 
     def test_mounts_go_to_the_hosts_namespace(self, mocker: MockerFixture):
-        _run = mocker.patch.object(parameter_set, "subprocess_run_wrapper")
+        _run = mocker.patch.object(
+            parameter_set, "subprocess_run_wrapper", side_effect=_findmnt_finds_nothing
+        )
         mocker.patch.object(
             parameter_set._env, "is_dynamic_client_running", return_value=True
         )
@@ -1273,8 +1301,7 @@ class TestHostCommands:
         _mounter.bind_ro(Path(_tree), "/opt/p")
         _mounter.umount("/opt/p")
         assert [_c.args[0] for _c in _run.call_args_list] == [
-            ["mount", "--bind", _tree, "/opt/p"],
-            ["mount", "-o", "remount,bind,ro,nosuid,nodev", "/opt/p"],
+            *staged_bind(_tree, "/opt/p"),
             ["umount", "--lazy", "/opt/p"],
         ]
         assert all(_c.kwargs["set_host_mnt_ns"] for _c in _run.call_args_list)
@@ -1397,22 +1424,74 @@ class TestHostCommands:
         # the same path, a real directory on the host, is mounted
         (_host / "opt" / "p").unlink()
         (_host / "opt" / "p").mkdir()
+        _run.side_effect = _findmnt_finds_nothing
         HostParameterSlotMounter(str(_host)).bind_ro(tmp_path / "src", "/opt/p")
-        assert _run.call_count == 2
+        assert [_c.args[0] for _c in _run.call_args_list] == staged_bind(
+            str(tmp_path / "src"), "/opt/p"
+        )
 
+    @pytest.mark.parametrize(
+        "failing",
+        (
+            pytest.param(["mount", "--make-private"], id="make_private"),
+            pytest.param(["mount", "--bind"], id="bind"),
+            pytest.param(["mount", "-o"], id="remount"),
+            pytest.param(["mount", "--move"], id="move"),
+        ),
+    )
     def test_a_bind_that_cannot_be_made_read_only_is_undone(
-        self, mocker: MockerFixture
+        self, mocker: MockerFixture, failing: list[str]
     ):
+        """A failed step leaves nothing at the slot's path, and the staging mount
+        goes, with the bind in it."""
+
         def _run(cmd, **kwargs):
-            if cmd[:2] == ["mount", "-o"]:
-                raise subprocess.CalledProcessError(32, cmd, stderr=b"remount failed")
+            _findmnt_finds_nothing(cmd)
+            if cmd[:2] == failing:
+                raise subprocess.CalledProcessError(32, cmd, stderr=b"step failed")
 
         _wrapper = mocker.patch.object(
             parameter_set, "subprocess_run_wrapper", side_effect=_run
         )
-        with pytest.raises(CommandFailed, match="remount failed"):
+        with pytest.raises(CommandFailed, match="step failed"):
             HostParameterSlotMounter("/").bind_ro(Path("/src"), "/opt/p")
-        assert _wrapper.call_args.args[0] == ["umount", "--lazy", "/opt/p"]
+        _ran = [_c.args[0] for _c in _wrapper.call_args_list]
+        assert _ran[-1] == ["umount", "--lazy", _STAGE]
+        # nothing was mounted at the slot's path but by the move, which failed or
+        #   did not run
+        assert not [
+            _c for _c in _ran if "/opt/p" in _c and _c[:2] != ["mount", "--move"]
+        ]
+
+    def test_the_bind_is_read_only_before_it_reaches_the_slots_path(
+        self, mocker: MockerFixture
+    ):
+        """Made in the private staging mount and made read-only there, then moved:
+        the peers of the slot's path get it read-only (a remount at the slot's path
+        would not reach them)."""
+        _run = mocker.patch.object(
+            parameter_set, "subprocess_run_wrapper", side_effect=_findmnt_finds_nothing
+        )
+        HostParameterSlotMounter("/").bind_ro(Path("/src"), "/opt/p")
+        _ran = [_c.args[0] for _c in _run.call_args_list]
+        _private = _ran.index(["mount", "--make-private", _STAGE])
+        _bind = _ran.index(["mount", "--bind", "/src", _STAGED])
+        _ro = _ran.index(["mount", "-o", "remount,bind,ro,nosuid,nodev", _STAGED])
+        _move = _ran.index(["mount", "--move", _STAGED, "/opt/p"])
+        assert _private < _bind < _ro < _move
+        assert [_c for _c in _ran if _c[-1] == "/opt/p"] == [_ran[_move]]
+
+    def test_a_staging_mount_left_over_is_cleared_first(self, mocker: MockerFixture):
+        """An otaclient stopped in the middle of a bind leaves the staging mount: it
+        goes before another is mounted over it."""
+        _run = mocker.patch.object(parameter_set, "subprocess_run_wrapper")
+        HostParameterSlotMounter("/").bind_ro(Path("/src"), "/opt/p")
+        _ran = [_c.args[0] for _c in _run.call_args_list]
+        assert _ran[:3] == [
+            ["findmnt", "--noheadings", "--mountpoint", _STAGE],
+            ["umount", "--lazy", _STAGE],
+            ["mkdir", "-p", _STAGE],
+        ]
 
     def test_a_failed_command_says_why(self, mocker: MockerFixture):
         mocker.patch.object(
@@ -1646,8 +1725,7 @@ class TestTheCommand:
         _tree = str(_store.tree_of(PARAMS))
         assert _ran == [
             ["findmnt", "--noheadings", "--mountpoint", PARAMS.path],
-            ["mount", "--bind", _tree, PARAMS.path],
-            ["mount", "-o", "remount,bind,ro,nosuid,nodev", PARAMS.path],
+            *staged_bind(_tree, PARAMS.path),
         ]
         # the mount point was made on the host
         assert (app_image / PARAMS.relpath).is_dir()

@@ -28,7 +28,7 @@ On a store on the running slot's own root filesystem, a base without an image ID
 | Path | What it is |
 | --- | --- |
 | `applied/record.json` | The set this slot runs with: [the record](#the-record). Absent when no set is applied. |
-| `applied/tree/<path>` | The set's files at their paths relative to `/`, bind-mounted read-only (`nosuid,nodev`; executables run) over each slot. |
+| `applied/tree/<path>` | The set's files at their paths relative to `/`, bind-mounted read-only (`nosuid,nodev`; executables run) over each slot. The bind is made read-only in a private staging mount (`/run/otaclient-parameter-set`) and then moved over the slot, so that a view that receives the host's mounts (a container's, a service's, another bind of `/`) gets it read-only too. |
 | `applied/files.json` | The files otaclient unpacked from the set's layer and checked: what the tree is checked against at each start. |
 | `applied/manifest.json`, `config.json` | The set's own metadata, as downloaded. |
 | `previous/` | The set before, only while a switch is in progress. |
