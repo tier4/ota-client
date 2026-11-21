@@ -113,6 +113,32 @@ class BrokenDecompressionError(DownloadError):
     """
 
 
+class DownloadCancelled(DownloadError):
+    """The download was stopped before its end, by `cancel_downloads`."""
+
+
+# ------ cancellation ------ #
+
+_downloads_cancelled = threading.Event()
+
+
+def cancel_downloads() -> None:
+    """Make every download of this process stop at its next chunk, and refuse new ones.
+
+    An abort ends the OTA core process with a signal, and the process exits only once
+    its threads have: a download in flight would stream on until its file is whole,
+    which for a partition payload's rootfs image is gigabytes, the whole time in
+    ABORTING. What has arrived is left where it is (a `<digest>.part` is continued by
+    the next update).
+    """
+    _downloads_cancelled.set()
+
+
+def _raise_if_cancelled(url: str) -> None:
+    if _downloads_cancelled.is_set():
+        raise DownloadCancelled(f"downloads are cancelled: {url}")
+
+
 # ------ decompression support ------ #
 
 
@@ -482,6 +508,7 @@ class Downloader:
 
         err_count, downloaded_file_size, traffic_on_wire = 0, 0, 0
 
+        _raise_if_cancelled(prepared_url)
         with self._session.get(
             prepared_url, stream=True, headers=prepared_headers, timeout=timeout
         ) as resp:
@@ -520,6 +547,7 @@ class Downloader:
                 if decompressor := self._get_decompressor(compression_alg):
                     # NOTE: raw_resp(HTTPResponse) here is configured to be an IO[bytes]
                     for _chunk in decompressor.iter_chunk(raw_resp):  # type: ignore
+                        _raise_if_cancelled(prepared_url)
                         digestobj.update(_chunk)
                         dst_fp.write(_chunk)
                         downloaded_file_size += len(_chunk)
@@ -529,6 +557,7 @@ class Downloader:
                         traffic_on_wire = new_traffic_on_wire
                 else:  # no compression is configured
                     for _chunk in resp.iter_content(chunk_size=self.chunk_size):
+                        _raise_if_cancelled(prepared_url)
                         digestobj.update(_chunk)
                         dst_fp.write(_chunk)
                         downloaded_file_size += len(_chunk)
