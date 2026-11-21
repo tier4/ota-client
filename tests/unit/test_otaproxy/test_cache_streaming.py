@@ -704,6 +704,33 @@ class TestCacheWriterPool:
         if not tracker._tracker_events.writer_failed:
             assert tracker._tracker_events.writer_finished
 
+    async def test_a_stream_closed_before_its_end_is_not_cached(
+        self, tmp_path: Path, mocker
+    ):
+        """otaproxy closes the stream when its client goes away: the writer has a part of
+        the file, which must not become a cache entry."""
+        cb = mocker.MagicMock(return_value=True)
+        tracker = _make_tracker(tmp_path, commit_cache_cb=cb)
+        tracker.cache_meta = _make_cache_meta()
+        _upstream_closed = asyncio.Event()
+
+        async def endless_gen() -> AsyncGenerator[bytes]:
+            try:
+                while True:
+                    yield b"chunk"
+            finally:
+                _upstream_closed.set()
+
+        gen = self.pool.stream_writing_cache(endless_gen(), tracker)
+        for _ in range(4):
+            await gen.__anext__()
+        await gen.aclose()
+
+        await asyncio.sleep(0.3)
+        assert _upstream_closed.is_set(), "the request to the remote ends too"
+        assert tracker._tracker_events.writer_failed
+        cb.assert_not_called()
+
     async def test_stream_writing_cache_fd_error_raises(self, tmp_path: Path):
         """Exception from upstream fd → CacheStreamingFailed raised."""
         tracker = _make_tracker(tmp_path)

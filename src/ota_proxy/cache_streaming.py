@@ -545,6 +545,11 @@ class CacheWriterPool:
                 if not tracker_event.writer_failed:
                     tee_que.put_nowait(chunk)
                 yield chunk  # to uvicorn
+        except GeneratorExit:
+            # closed before its end (the client went away): what the writer has is a
+            #   part of the file, not a cache entry
+            tracker_event.set_writer_failed()
+            raise
         except Exception as e:
             tracker_event.set_writer_failed()  # hint thread worker to abort or drop caching
             _err_msg = f"upper file descriptor failed({tracker.cache_meta=}): {e!r}"

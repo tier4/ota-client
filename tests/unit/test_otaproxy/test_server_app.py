@@ -28,6 +28,7 @@ required.
 
 from __future__ import annotations
 
+import asyncio
 from http import HTTPStatus
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -593,6 +594,77 @@ class TestPullDataAndSend:
         # Last message: empty body to terminate stream
         assert sent[-1]["body"] == b""
         assert not sent[-1].get("more_body")
+
+    async def test_a_client_that_goes_away_ends_the_transfer(self):
+        """An aborted OTA's client disconnects: otaproxy stops reading the remote rather
+        than reading it to its end for no one (uvicorn drops what is sent after it)."""
+        _produced, _closed, _two_sent = [], asyncio.Event(), asyncio.Event()
+
+        async def _endless():
+            try:
+                while True:
+                    _produced.append(b"x")
+                    if len(_produced) == 2:
+                        _two_sent.set()
+                    yield b"x"
+                    await asyncio.sleep(0)
+            finally:
+                _closed.set()
+
+        _msgs = [{"type": "http.request", "body": b"", "more_body": False}]
+
+        async def _receive():
+            if _msgs:
+                return _msgs.pop(0)
+            await _two_sent.wait()
+            return {"type": "http.disconnect"}
+
+        mock_cache = _make_ota_cache_mock()
+        mock_cache.retrieve_file.return_value = (_endless(), CIMultiDict())
+        app = App(mock_cache)
+        mq = _MessageQueue([])
+        await asyncio.wait_for(
+            app._pull_data_and_send(
+                "http://example.com/blob",
+                _make_http_scope(path="/blob"),
+                mq.send,
+                _receive,
+            ),
+            timeout=5,
+        )
+
+        assert _closed.is_set(), "the remote's stream is closed"
+        assert len(_produced) < 100
+        assert not any(
+            m["type"] == "http.response.body" and not m.get("more_body")
+            for m in mq.sent
+        ), "no end of body is sent to a client that is gone"
+
+    async def test_a_client_that_stays_gets_the_whole_file(self):
+        """The disconnect watch does not cut a transfer whose client is still there."""
+        chunks = [b"c1", b"c2", b"c3"]
+
+        async def _gen():
+            for c in chunks:
+                yield c
+
+        _msgs = [{"type": "http.request", "body": b"", "more_body": False}]
+
+        async def _receive():
+            if _msgs:
+                return _msgs.pop(0)
+            await asyncio.Event().wait()  # a client that never leaves
+
+        mock_cache = _make_ota_cache_mock()
+        mock_cache.retrieve_file.return_value = (_gen(), CIMultiDict())
+        app = App(mock_cache)
+        mq = _MessageQueue([])
+        await app._pull_data_and_send(
+            "http://example.com/f", _make_http_scope(path="/f"), mq.send, _receive
+        )
+
+        bodies = [m["body"] for m in mq.sent if m["type"] == "http.response.body"]
+        assert bodies == chunks + [b""]
 
     async def test_the_rest_of_a_file_is_sent_as_partial_content(self):
         """A ranged request's answer from the remote goes to the client as the 206 it
