@@ -731,6 +731,122 @@ class TestCacheWriterPool:
         assert tracker._tracker_events.writer_failed
         cb.assert_not_called()
 
+    async def test_a_stream_closed_at_its_first_chunk_fails_the_tracker_at_once(
+        self, tmp_path: Path
+    ):
+        """Closed before the writer started: the subscribers waiting for that writer
+        are told now (CacheProviderNotReady) rather than when their wait times out."""
+        tracker = _make_tracker(tmp_path)
+        tracker.cache_meta = _make_cache_meta()
+        _upstream_closed = asyncio.Event()
+
+        async def endless_gen() -> AsyncGenerator[bytes]:
+            try:
+                while True:
+                    yield b"chunk"
+            finally:
+                _upstream_closed.set()
+
+        gen = self.pool.stream_writing_cache(endless_gen(), tracker)
+        await gen.__anext__()
+        await gen.aclose()
+
+        assert tracker._tracker_events.writer_failed
+        assert _upstream_closed.is_set()
+        with pytest.raises(CacheProviderNotReady):
+            await asyncio.wait_for(tracker.subscriber_wait_for_provider(), timeout=2)
+
+    async def test_the_rest_is_cached_for_the_subscribers_when_the_client_goes_away(
+        self, tmp_path: Path, mocker
+    ):
+        """Another client reads the file as it is cached: the provider's client going
+        away does not cut it, the rest of the file is fetched and cached for it."""
+        cb = mocker.MagicMock(return_value=True)
+        tracker = _make_tracker(tmp_path, commit_cache_cb=cb)
+        tracker.cache_meta = _make_cache_meta()
+        _chunks = [b"%04d" % _i for _i in range(50)]
+
+        async def upstream() -> AsyncGenerator[bytes]:
+            for _c in _chunks:
+                yield _c
+                await asyncio.sleep(0)
+
+        tracker.subscriber_joined()
+        gen = self.pool.stream_writing_cache(upstream(), tracker)
+        for _ in range(4):
+            await gen.__anext__()
+        await gen.aclose()
+
+        for _ in range(100):
+            if tracker._tracker_events.writer_finished:
+                break
+            await asyncio.sleep(0.05)
+        assert tracker._tracker_events.writer_finished
+        assert not tracker._tracker_events.writer_failed
+        assert Path(tracker.fpath).read_bytes() == b"".join(_chunks)
+        cb.assert_called_once()
+        tracker.subscriber_left()
+
+    async def test_caching_for_the_subscribers_ends_when_the_last_one_leaves(
+        self, tmp_path: Path, mocker
+    ):
+        cb = mocker.MagicMock(return_value=True)
+        tracker = _make_tracker(tmp_path, commit_cache_cb=cb)
+        tracker.cache_meta = _make_cache_meta()
+        _upstream_closed, _produced = asyncio.Event(), []
+
+        async def endless_gen() -> AsyncGenerator[bytes]:
+            try:
+                while True:
+                    _produced.append(1)
+                    yield b"chunk"
+                    await asyncio.sleep(0.01)
+            finally:
+                _upstream_closed.set()
+
+        tracker.subscriber_joined()
+        gen = self.pool.stream_writing_cache(endless_gen(), tracker)
+        for _ in range(4):
+            await gen.__anext__()
+        await gen.aclose()
+        await asyncio.sleep(0.1)
+        assert not tracker._tracker_events.writer_failed, "still caching for it"
+
+        tracker.subscriber_left()
+        await asyncio.wait_for(_upstream_closed.wait(), timeout=2)
+        assert tracker._tracker_events.writer_failed
+        await asyncio.sleep(0.3)
+        cb.assert_not_called()
+
+    async def test_closing_the_pool_ends_the_caching_for_subscribers(
+        self, tmp_path: Path, mocker
+    ):
+        cb = mocker.MagicMock(return_value=True)
+        tracker = _make_tracker(tmp_path, commit_cache_cb=cb)
+        tracker.cache_meta = _make_cache_meta()
+        _upstream_closed = asyncio.Event()
+
+        async def endless_gen() -> AsyncGenerator[bytes]:
+            try:
+                while True:
+                    yield b"chunk"
+                    await asyncio.sleep(0.01)
+            finally:
+                _upstream_closed.set()
+
+        pool = CacheWriterPool(max_workers=1, max_pending=4)
+        tracker.subscriber_joined()
+        gen = pool.stream_writing_cache(endless_gen(), tracker)
+        for _ in range(4):
+            await gen.__anext__()
+        await gen.aclose()
+        await asyncio.sleep(0.05)
+
+        await asyncio.wait_for(pool.close(), timeout=5)
+        assert _upstream_closed.is_set()
+        assert tracker._tracker_events.writer_failed
+        cb.assert_not_called()
+
     async def test_stream_writing_cache_fd_error_raises(self, tmp_path: Path):
         """Exception from upstream fd → CacheStreamingFailed raised."""
         tracker = _make_tracker(tmp_path)
@@ -879,6 +995,39 @@ class TestCacheReaderPool:
 
         with pytest.raises(CacheProviderNotReady):
             await self.pool.subscribe_tracker(tracker)
+
+    async def test_a_subscriber_counts_until_its_stream_ends(self, tmp_path: Path):
+        """A provider whose client goes away caches the rest for its subscribers: a
+        subscriber counts from its wait to the end of its stream, and only then."""
+        tracker = _make_tracker(tmp_path)
+        tracker.cache_meta = _make_cache_meta()
+        tracker._tracker_events.set_writer_started()
+        Path(tracker.fpath).write_bytes(b"streamed data")
+        tracker._bytes_written = len(b"streamed data")
+
+        result = await self.pool.subscribe_tracker(tracker)
+        assert isinstance(result, AsyncGenerator)
+        assert tracker.has_subscribers
+        await result.__anext__()
+        await result.aclose()
+        assert not tracker.has_subscribers
+
+    async def test_a_subscriber_that_gets_no_stream_does_not_count(
+        self, tmp_path: Path
+    ):
+        small = _make_tracker(tmp_path, cache_identifier="small")
+        small.cache_meta = _make_cache_meta(cache_size=64)
+        small._tracker_events.set_writer_finished()
+        Path(small.fpath).write_bytes(b"small data")
+        assert await self.pool.subscribe_tracker(small) == b"small data"
+        assert not small.has_subscribers
+
+        failed = _make_tracker(tmp_path, cache_identifier="failed")
+        failed.cache_meta = _make_cache_meta()
+        failed._tracker_events.set_writer_failed()
+        with pytest.raises(CacheProviderNotReady):
+            await self.pool.subscribe_tracker(failed)
+        assert not failed.has_subscribers
 
     async def test_subscribe_tracker_finished_large_file(self, tmp_path: Path):
         """Finished large cache → stream path (not read_file_once)."""

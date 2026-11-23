@@ -51,6 +51,9 @@ from .ota_cache import OTACache
 logger = logging.getLogger(__name__)
 # NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.request_error")
+# NOTE: an abort cuts every transfer of an ECU at once, and that is not a request error:
+#       its lines must not use up request_error's quota
+client_gone_logger = get_burst_suppressed_logger(f"{__name__}.client_gone")
 
 # only expose app
 __all__ = ("App",)
@@ -291,7 +294,7 @@ class App:
         finally:
             del exc  # break ref
 
-    async def _pull_data_and_send(self, url: str, scope, send, receive=None):
+    async def _pull_data_and_send(self, url: str, scope, receive, send):
         """Streaming data between OTACache instance and ota_client
 
         Retrieves file descriptor from OTACache instance,
@@ -300,6 +303,7 @@ class App:
         Args:
             url str: URL requested by ota_client.
             scope: ASGI scope for current request.
+            receive: ASGI receive method, watched for the client's disconnect.
             send: ASGI send method.
         """
         headers_from_client = parse_raw_headers(scope["headers"])
@@ -339,15 +343,11 @@ class App:
                 #   disconnect, so the remote would otherwise be read to its end for no
                 #   one -- a partition payload's rootfs image is gigabytes, and otaproxy
                 #   does not shut down before its transfers end.
-                _gone = (
-                    asyncio.create_task(self._client_gone(receive))
-                    if receive is not None
-                    else None
-                )
+                _gone = asyncio.create_task(self._client_gone(receive))
                 try:
                     async for chunk in fp:
-                        if _gone is not None and _gone.done() and _gone.result():
-                            burst_suppressed_logger.info(
+                        if _gone.done() and _gone.result():
+                            client_gone_logger.info(
                                 f"the client went away, stop transferring {url}"
                             )
                             await fp.aclose()
@@ -355,8 +355,7 @@ class App:
                         await self._stream_send_chunk(chunk, send)
                     await self._send_chunk_one(b"", send)
                 finally:
-                    if _gone is not None:
-                        _gone.cancel()
+                    _gone.cancel()
         except Exception as e:
             await self._error_handling_during_transferring(e, url, send)
             return
@@ -369,10 +368,11 @@ class App:
                 _msg = await receive()
                 if _msg.get("type") == "http.disconnect":
                     return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"cannot watch for the client's disconnect: {e!r}")
             return False
 
-    async def http_handler(self, scope, send, receive=None):
+    async def http_handler(self, scope, receive, send):
         """The real entry for the ota_proxy."""
         if scope["method"] != METHOD_GET:
             msg = "ONLY SUPPORT GET METHOD."
@@ -412,7 +412,7 @@ class App:
 
         await self._se.acquire()
         try:
-            await self._pull_data_and_send(url, scope, send, receive)
+            await self._pull_data_and_send(url, scope, receive, send)
         finally:
             self._se.release()
 
@@ -435,5 +435,5 @@ class App:
                     await send({"type": "lifespan.shutdown.complete"})
                     return
         elif scope["type"] == REQ_TYPE_HTTP:
-            await self.http_handler(scope, send, receive)
+            await self.http_handler(scope, receive, send)
         # ignore unknown request type

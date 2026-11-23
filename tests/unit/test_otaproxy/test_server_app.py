@@ -34,6 +34,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
+import pytest
 from multidict import CIMultiDict
 
 from ota_proxy._consts import (
@@ -548,7 +549,7 @@ class TestPullDataAndSend:
     ) -> list[dict]:
         scope = _make_http_scope(path=path, headers=headers)
         mq = _MessageQueue([])
-        await app._pull_data_and_send(url, scope, mq.send)
+        await app._pull_data_and_send(url, scope, mq.receive, mq.send)
         return mq.sent
 
     async def test_bytes_response_sends_ok_and_body(self):
@@ -627,8 +628,8 @@ class TestPullDataAndSend:
             app._pull_data_and_send(
                 "http://example.com/blob",
                 _make_http_scope(path="/blob"),
-                mq.send,
                 _receive,
+                mq.send,
             ),
             timeout=5,
         )
@@ -640,19 +641,59 @@ class TestPullDataAndSend:
             for m in mq.sent
         ), "no end of body is sent to a client that is gone"
 
-    async def test_a_client_that_stays_gets_the_whole_file(self):
-        """The disconnect watch does not cut a transfer whose client is still there."""
-        chunks = [b"c1", b"c2", b"c3"]
+    async def test_a_client_that_goes_away_is_noticed_through_the_app(self):
+        """uvicorn calls the app with its receive: the disconnect watch gets it."""
+        _closed, _started = asyncio.Event(), asyncio.Event()
 
-        async def _gen():
-            for c in chunks:
-                yield c
+        async def _endless():
+            try:
+                while True:
+                    _started.set()
+                    yield b"x"
+                    await asyncio.sleep(0)
+            finally:
+                _closed.set()
 
         _msgs = [{"type": "http.request", "body": b"", "more_body": False}]
 
         async def _receive():
             if _msgs:
                 return _msgs.pop(0)
+            await _started.wait()
+            return {"type": "http.disconnect"}
+
+        mock_cache = _make_ota_cache_mock()
+        mock_cache.retrieve_file.return_value = (_endless(), CIMultiDict())
+        app = App(mock_cache)
+        mq = _MessageQueue([])
+        await asyncio.wait_for(
+            app(_make_http_scope(path="/blob"), _receive, mq.send), timeout=5
+        )
+
+        assert _closed.is_set()
+        assert not any(
+            m["type"] == "http.response.body" and not m.get("more_body")
+            for m in mq.sent
+        )
+
+    @pytest.mark.parametrize("_receive_kind", ["stays", "cannot_be_watched"])
+    async def test_a_client_that_stays_gets_the_whole_file(self, _receive_kind: str):
+        """The disconnect watch cuts no transfer whose client is still there, also when
+        the watch itself cannot tell (its receive fails)."""
+        chunks = [b"c1", b"c2", b"c3", b"c4"]
+
+        async def _gen():
+            for c in chunks:
+                yield c
+                await asyncio.sleep(0)  # the watch gets its turns meanwhile
+
+        _msgs = [{"type": "http.request", "body": b"", "more_body": False}]
+
+        async def _receive():
+            if _msgs:
+                return _msgs.pop(0)
+            if _receive_kind == "cannot_be_watched":
+                raise RuntimeError("receive failed")
             await asyncio.Event().wait()  # a client that never leaves
 
         mock_cache = _make_ota_cache_mock()
@@ -660,7 +701,7 @@ class TestPullDataAndSend:
         app = App(mock_cache)
         mq = _MessageQueue([])
         await app._pull_data_and_send(
-            "http://example.com/f", _make_http_scope(path="/f"), mq.send, _receive
+            "http://example.com/f", _make_http_scope(path="/f"), _receive, mq.send
         )
 
         bodies = [m["body"] for m in mq.sent if m["type"] == "http.response.body"]

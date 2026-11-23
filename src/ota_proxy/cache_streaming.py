@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import os.path as os_path
@@ -183,6 +184,18 @@ class CacheTracker:
 
         self._bytes_written = 0
         self._acall_soon = asyncio.get_event_loop().call_soon_threadsafe
+        # the subscribers reading this file as it is cached; counted on the event loop
+        self._subscribers = 0
+
+    @property
+    def has_subscribers(self) -> bool:
+        return self._subscribers > 0
+
+    def subscriber_joined(self) -> None:
+        self._subscribers += 1
+
+    def subscriber_left(self) -> None:
+        self._subscribers -= 1
 
     def _finalize_cache(self) -> None:
         """Finalize the caching, commit the cache entry to db.
@@ -441,6 +454,9 @@ class CacheWriterPool:
         self._se = asyncio.Semaphore(max_pending)
         self._writer_start_timeout = writer_start_timeout
         self._acall_soon = asyncio.get_event_loop().call_soon_threadsafe
+        # transfers that go on caching for their subscribers after the provider's
+        #   client went away (a strong ref keeps them from being collected)
+        self._keep_caching_tasks: set[asyncio.Task] = set()
 
     def _release_se_cb(self, _):
         self._acall_soon(self._se.release)
@@ -489,7 +505,41 @@ class CacheWriterPool:
             del self, fn, args, kwargs
 
     async def close(self) -> None:
+        for _task in list(self._keep_caching_tasks):
+            _task.cancel()
         await run_sync(self._pool.shutdown)
+
+    async def _keep_caching_for_subscribers(
+        self,
+        fd: AsyncGenerator[bytes],
+        tee_que: SimpleQueue[bytes | None],
+        tracker: CacheTracker,
+    ) -> None:
+        """Cache the rest of <fd> for the clients that read it as it is cached, after the
+        client that started the transfer went away; given up once none of them is left
+        (what is cached so far is then a part of the file, not a cache entry)."""
+        tracker_event = tracker._tracker_events
+        try:
+            async for chunk in fd:
+                if tracker_event.writer_failed:
+                    return
+                if not tracker.has_subscribers:
+                    tracker_event.set_writer_failed()
+                    return
+                tee_que.put_nowait(chunk)
+        except BaseException as e:  # CancelledError included: otaproxy is closing
+            tracker_event.set_writer_failed()
+            if isinstance(e, Exception):
+                burst_suppressed_logger.warning(
+                    f"upper file descriptor failed({tracker.cache_meta=}): {e!r}"
+                )
+                return
+            raise
+        finally:
+            tee_que.put_nowait(None)  # send sentinel to the caching task
+            with contextlib.suppress(Exception):
+                await fd.aclose()
+            del fd, tee_que, tracker, tracker_event
 
     async def stream_writing_cache(
         self, fd: AsyncGenerator[bytes], tracker: CacheTracker
@@ -507,56 +557,77 @@ class CacheWriterPool:
             CacheStreamingFailed if any exception happens.
         """
         tracker_event = tracker._tracker_events
+        tee_que: SimpleQueue[bytes | None] | None = None
+        handed_over = False  # the rest of <fd> is cached by a task for the subscribers
         try:
-            _first_chunk = await fd.__anext__()
-            # or receive empty chunk from upper, also indicates an empty file
-            if len(_first_chunk) == 0:
-                tracker.provider_handle_empty_file()
+            try:
+                _first_chunk = await fd.__anext__()
+                # or receive empty chunk from upper, also indicates an empty file
+                if len(_first_chunk) == 0:
+                    tracker.provider_handle_empty_file()
+                    yield _first_chunk
+                    return
                 yield _first_chunk
+            except StopAsyncIteration:
+                # no data chunk from upper, might indicate an empty file
+                tracker.provider_handle_empty_file()
                 return
-            yield _first_chunk
-        except StopAsyncIteration:
-            # no data chunk from upper, might indicate an empty file
-            tracker.provider_handle_empty_file()
-            return
 
-        # fast path for small resource that only takes one chunk's size
-        try:
-            _second_chunk = await fd.__anext__()
-            yield _second_chunk
-        except StopAsyncIteration:  # no next chunk
+            # fast path for small resource that only takes one chunk's size
+            try:
+                _second_chunk = await fd.__anext__()
+                yield _second_chunk
+            except StopAsyncIteration:  # no next chunk
+                await self._write_dispatcher(
+                    tracker_event,
+                    tracker.provider_write_once_in_thread,
+                    _first_chunk,
+                )
+                return  # only one chunk, directly write it and return
+
+            tee_que = SimpleQueue()
+            tee_que.put_nowait(_first_chunk)
+            tee_que.put_nowait(_second_chunk)
             await self._write_dispatcher(
                 tracker_event,
-                tracker.provider_write_once_in_thread,
-                _first_chunk,
+                tracker.provider_write_file_in_thread,
+                tee_que,
             )
-            return  # only one chunk, directly write it and return
-
-        tee_que: SimpleQueue[bytes | None] = SimpleQueue()
-        tee_que.put_nowait(_first_chunk)
-        tee_que.put_nowait(_second_chunk)
-        await self._write_dispatcher(
-            tracker_event,
-            tracker.provider_write_file_in_thread,
-            tee_que,
-        )
-        try:
-            async for chunk in fd:
-                if not tracker_event.writer_failed:
-                    tee_que.put_nowait(chunk)
-                yield chunk  # to uvicorn
+            try:
+                async for chunk in fd:
+                    if not tracker_event.writer_failed:
+                        tee_que.put_nowait(chunk)
+                    yield chunk  # to uvicorn
+            except Exception as e:
+                tracker_event.set_writer_failed()  # hint thread worker to abort or drop caching
+                _err_msg = f"upper file descriptor failed({tracker.cache_meta=}): {e!r}"
+                burst_suppressed_logger.warning(_err_msg)
+                raise CacheStreamingFailed(_err_msg) from e
         except GeneratorExit:
-            # closed before its end (the client went away): what the writer has is a
-            #   part of the file, not a cache entry
-            tracker_event.set_writer_failed()
+            # Closed before its end: the client went away. Other clients reading this
+            #   file as it is cached get the rest of it all the same; otherwise the
+            #   transfer ends here, and what the writer has (if it started) is a part of
+            #   the file, not a cache entry. Before the writer started, the subscribers
+            #   waiting for it are told now rather than when their wait times out.
+            if (
+                tee_que is not None
+                and tracker.has_subscribers
+                and not tracker_event.writer_failed
+            ):
+                _task = asyncio.create_task(
+                    self._keep_caching_for_subscribers(fd, tee_que, tracker)
+                )
+                self._keep_caching_tasks.add(_task)
+                _task.add_done_callback(self._keep_caching_tasks.discard)
+                handed_over = True
+            else:
+                tracker_event.set_writer_failed()
+                with contextlib.suppress(Exception):
+                    await fd.aclose()
             raise
-        except Exception as e:
-            tracker_event.set_writer_failed()  # hint thread worker to abort or drop caching
-            _err_msg = f"upper file descriptor failed({tracker.cache_meta=}): {e!r}"
-            burst_suppressed_logger.warning(_err_msg)
-            raise CacheStreamingFailed(_err_msg) from e
         finally:
-            tee_que.put_nowait(None)  # send sentinel to the caching task
+            if tee_que is not None and not handed_over:
+                tee_que.put_nowait(None)  # send sentinel to the caching task
             del fd, tracker, tee_que, tracker_event  # remove the refs
 
 
@@ -635,6 +706,8 @@ class CacheReaderPool:
         self,
         que: asyncio.Queue[bytes | None | Any],
         interrupt_thread_worker: threading.Event,
+        *,
+        on_close: Callable[[], Any] | None = None,
     ) -> AsyncGenerator[bytes]:
         """Stream data coming from read worker to upper caller.
 
@@ -654,7 +727,9 @@ class CacheReaderPool:
                 yield data
         finally:
             interrupt_thread_worker.set()
-            del que, self, interrupt_thread_worker
+            if on_close is not None:
+                on_close()
+            del que, self, interrupt_thread_worker, on_close
 
     async def stream_read_file(
         self, fpath: StrOrPath | anyio.Path, *, offset: int = 0
@@ -693,27 +768,38 @@ class CacheReaderPool:
             ReaderPoolBusy if exceeding max pending read tasks.
             CacheProviderNotReady if timeout waiting cache provider ready.
         """
-        # First we wait for provider ready
-        _cache_finished = await tracker.subscriber_wait_for_provider()
-        assert (_cache_meta := tracker.cache_meta)
+        # A subscriber counts from here until its stream ends: a provider whose client
+        #   goes away meanwhile caches the rest of the file for it (stream_writing_cache).
+        tracker.subscriber_joined()
+        _streaming = False
+        try:
+            # First we wait for provider ready
+            _cache_finished = await tracker.subscriber_wait_for_provider()
+            assert (_cache_meta := tracker.cache_meta)
 
-        # If cache write is finished and file is small, read it in one shot.
-        # read_file_once awaits the result, so tracker stays alive throughout.
-        if _cache_finished:
-            if _cache_meta.cache_size == 0:
-                return b""
-            if _cache_meta.cache_size <= cfg.REMOTE_READ_CHUNK_SIZE:
-                return await self.read_file_once(tracker.fpath)
+            # If cache write is finished and file is small, read it in one shot.
+            # read_file_once awaits the result, so tracker stays alive throughout.
+            if _cache_finished:
+                if _cache_meta.cache_size == 0:
+                    return b""
+                if _cache_meta.cache_size <= cfg.REMOTE_READ_CHUNK_SIZE:
+                    return await self.read_file_once(tracker.fpath)
 
-        # For ongoing cache or finished large files, use subscriber_stream_cache_in_thread.
-        # The bound method keeps a strong reference to tracker, preventing GC
-        # from deleting the tmp file before the reader opens it.
-        interrupt_thread_worker = threading.Event()
-        que = asyncio.Queue()
-        await self._read_dispatcher(
-            tracker.subscriber_stream_cache_in_thread,
-            que,
-            interrupt_thread_worker=interrupt_thread_worker,
-            read_chunk_size=self.read_chunk_size,
-        )
-        return self._stream_from_que(que, interrupt_thread_worker)
+            # For ongoing cache or finished large files, use subscriber_stream_cache_in_thread.
+            # The bound method keeps a strong reference to tracker, preventing GC
+            # from deleting the tmp file before the reader opens it.
+            interrupt_thread_worker = threading.Event()
+            que = asyncio.Queue()
+            await self._read_dispatcher(
+                tracker.subscriber_stream_cache_in_thread,
+                que,
+                interrupt_thread_worker=interrupt_thread_worker,
+                read_chunk_size=self.read_chunk_size,
+            )
+            _streaming = True
+            return self._stream_from_que(
+                que, interrupt_thread_worker, on_close=tracker.subscriber_left
+            )
+        finally:
+            if not _streaming:
+                tracker.subscriber_left()
