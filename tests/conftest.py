@@ -416,3 +416,15 @@ def fst_db_helper(tmp_path_factory: pytest.TempPathFactory) -> FileTableDBHelper
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
         )
     return FileTableDBHelper(ft_dbf)
+
+
+@pytest.fixture(autouse=True)
+def _downloads_not_cancelled():
+    """`cancel_downloads` is a one-way latch for the process (an abort ends the core):
+    a test that sets it must not leave every later download in this pytest process
+    cancelled."""
+    from otaclient_common import downloader
+
+    downloader._downloads_cancelled.clear()
+    yield
+    downloader._downloads_cancelled.clear()

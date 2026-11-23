@@ -52,7 +52,7 @@ EXIT_CODE_OTA_ABORTED = 79
 WAIT_FOR_STATUS_REPORT = 3  # seconds
 
 
-def _abort_signal_handler(_signum: int, _frame: object) -> None:  # pragma: no cover
+def _abort_signal_handler(_signum: int, _frame: object) -> None:
     # The exit waits for the core's threads: a download in flight is told to stop now
     #   rather than when its file is whole.
     cancel_downloads()

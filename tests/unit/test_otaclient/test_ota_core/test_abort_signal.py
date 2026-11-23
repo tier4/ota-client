@@ -1,4 +1,4 @@
-# Copyright 2022 TIER IV, INC. All rights reserved.
+# Copyright 2026 TIER IV, INC. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,13 +22,6 @@ from otaclient.ota_core._abort_handler import (
     _abort_signal_handler,
 )
 from otaclient_common import downloader as downloader_module
-
-
-@pytest.fixture(autouse=True)
-def _not_cancelled():
-    downloader_module._downloads_cancelled.clear()
-    yield
-    downloader_module._downloads_cancelled.clear()
 
 
 def test_the_abort_signal_stops_the_downloads_before_the_core_exits() -> None:

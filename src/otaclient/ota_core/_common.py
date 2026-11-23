@@ -28,7 +28,7 @@ from requests import Response
 from otaclient import errors as ota_errors
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common.common import ensure_otaproxy_start
-from otaclient_common.downloader import DownloaderPool
+from otaclient_common.downloader import DownloadCancelled, DownloaderPool
 
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(
@@ -50,7 +50,8 @@ def download_exception_handler(_fut: Future[Any]) -> bool:
     Raises:
         UpdateRequestCookieInvalid on HTTP error 401 or 403,
         OTAImageNotFound(a sub-class of OTAImageInvalid) on HTTP error 404,
-        StandbySlotInsufficientSpace on disk space not enough.
+        StandbySlotInsufficientSpace on disk space not enough,
+        OTAAbortSignal when the downloads were cancelled (an abort is ending the core).
 
     Returns:
         True on succeeded downloading, False on handled exceptions.
@@ -59,6 +60,14 @@ def download_exception_handler(_fut: Future[Any]) -> bool:
         return True
 
     try:
+        # a cancelled download is not retried: the pool would otherwise re-submit it
+        #   until the interpreter shuts down, and stopping the iteration over its
+        #   futures here shuts the pool down now
+        if isinstance(exc, DownloadCancelled):
+            raise ota_errors.OTAAbortSignal(
+                f"downloads are cancelled: {exc!r}", module=__name__
+            )
+
         # exceptions that cannot be handled by us
         if isinstance(exc, requests_exc.HTTPError):
             _response = exc.response

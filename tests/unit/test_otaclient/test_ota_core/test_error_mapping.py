@@ -36,7 +36,7 @@ from otaclient.ota_core._update_libs import (
     metadata_download_err_handler,
     raise_on_download_resources_failed,
 )
-from otaclient_common.downloader import DownloadInactiveTimeout
+from otaclient_common.downloader import DownloadCancelled, DownloadInactiveTimeout
 from otaclient_common.retry_task_map import TasksEnsureFailed
 
 
@@ -87,6 +87,12 @@ class TestDownloadExceptionHandler:
         _fut = Future()
         _fut.set_result(None)
         assert download_exception_handler(_fut) is True
+
+    def test_a_cancelled_download_is_the_abort_not_a_retry(self):
+        """Downloads are cancelled only by an abort ending the core: the pool must not
+        re-submit them until the interpreter shuts down."""
+        with pytest.raises(ota_errors.OTAAbortSignal):
+            download_exception_handler(_failed_future(DownloadCancelled("cancelled")))
 
 
 class TestIsCausedByENOSPC:
