@@ -27,6 +27,7 @@ the retry pool's own behaviour is tested with it.
 from __future__ import annotations
 
 import errno
+import json
 import os
 import shutil
 import stat
@@ -46,6 +47,7 @@ from ota_image_libs.v1.consts import (
 from ota_image_libs.v1.image_index.schema import ImageIndex
 from ota_image_libs.v1.image_manifest.schema import (
     ImageIdentifier,
+    ImageManifest,
     OTAReleaseKey,
 )
 from ota_image_libs.v1.media_types import PARTITION_IMAGE_BLOB, PARTITION_IMAGE_DELTA
@@ -575,6 +577,47 @@ class TestDownloadMetadata:
 
         with pytest.raises(ota_errors.OTAImageInvalid, match="no partition-based"):
             read_metadata(_updater, _served, pool=pool)
+
+    @pytest.mark.parametrize(
+        "with_artifact_type",
+        [True, False],
+        ids=["artifactType named", "no artifactType (built before libs 0.6.0)"],
+    )
+    def test_a_file_based_payload_for_this_ecu_is_refused_by_name(
+        self, tmp_path: Path, pool, server, with_artifact_type: bool
+    ):
+        """One image may carry both kinds for different ECUs, and one ECU is of one
+        kind for good: a file-based payload under this ECU's name is a campaign
+        mistake, and the refusal says which kind it was rather than "not found".
+
+        An image built before ota-image-libs 0.6.0 names no artifactType on its
+        payload descriptors, and such an entry reads as file-based: the likeliest
+        image to be given to this ECU by mistake is an old one."""
+        _served, _ = serve_an_image(
+            tmp_path / "served", config(rootfs()), ecu="perception"
+        )
+        _index = ImageIndex.parse_metafile((_served / IMAGE_INDEX_FNAME).read_text())
+        _index.add_image(
+            ImageManifest.Descriptor(
+                digest="sha256:" + "ab" * 32,
+                size=10,
+                annotations={
+                    "vnd.tier4.pilot-auto.platform.ecu": THIS_ECU.ecu_id,
+                    "vnd.tier4.ota.release-key": THIS_ECU.release_key.value,
+                },
+            )
+        )
+        _index_json = json.loads(_index.export_metafile())
+        if not with_artifact_type:
+            _index_json["manifests"][-1].pop("artifactType")
+        (_served / IMAGE_INDEX_FNAME).write_text(json.dumps(_index_json))
+        _server = server(_served)
+        _updater = make_updater(tmp_path / "session")
+
+        with pytest.raises(ota_errors.OTAImageInvalid, match="is file-based"):
+            read_metadata(_updater, _served, pool=pool)
+        # refused at the index: nothing of the payload was asked for
+        assert _server.calls == []
 
     def test_a_manifest_the_server_does_not_have_is_an_image_not_found(
         self, tmp_path: Path, pool, server
