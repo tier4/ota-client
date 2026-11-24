@@ -22,6 +22,7 @@ from typing import NoReturn
 
 from otaclient import errors as ota_errors
 from otaclient._types import FailureType, OTAStatus, VersionDetail
+from otaclient_common import _env, cmdhelper
 
 from ._image_version_file import resolve_active_slot_version_detail
 from ._ota_config_files import OTAConfigFiles
@@ -99,6 +100,16 @@ class BootControllerBase(ABC):
         self._ota_status_control.store_current_version(
             version=version, version_detail=version_detail
         )
+
+    def standby_armed_in_this_boot(self) -> bool:
+        """The standby slot is switched to by post_update, which a failed update
+        leaves undone (or undoes), never by itself before a reboot: False."""
+        return False
+
+    def reboot_current_slot(self) -> NoReturn:
+        """Reboot into the slot that runs now: a plain reboot, as nothing was switched
+        (a parameter set whose changed slot's `apply` is `reboot`)."""
+        cmdhelper.reboot(chroot=_env.get_dynamic_client_chroot_path())
 
     def load_standby_slot_version(self) -> str:
         """Read the version info from the standby slot."""

@@ -328,9 +328,10 @@ class OTAUpdaterBase(OTAUpdateInitializer):
 
         self._preserve_ota_image_meta_at_post_update()
         # the new slot starts with its base's defaults: a parameter set applied here
-        #   stays behind, and the history of what was applied goes along
+        #   stays behind, and the history says so (copied along when the store is
+        #   on this slot's own filesystem, where it is when the slots share it)
         ParameterSetStore().carry_history_to(
-            self._standby_slot_mp, reason=f"full OTA to {self.update_version}"
+            self._standby_slot_mp, to_version=self.update_version
         )
         # NOTE(20250823): secure the resource dir and metadata dir
         os.chmod(self._resource_dir_on_standby, 0o700)

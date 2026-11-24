@@ -142,7 +142,7 @@ class TestPostUpdateOTAConfigFiles:
         )
         # the new slot gets the history of the parameter sets, not the set
         self.parameter_set_store.carry_history_to.assert_called_once_with(
-            updater._standby_slot_mp, reason="full OTA to 2.0.0"
+            updater._standby_slot_mp, to_version="2.0.0"
         )
 
     def test_post_update_ecu_id_mismatched(self, updater):

@@ -243,7 +243,11 @@ def subprocess_run_wrapper(
     if chroot:
         base = ["chroot", chroot]
     if set_host_mnt_ns:
-        base = [*base, "nsenter", "-t", init_pid, "-m"]
+        # NOTE: -r: also init's root directory. Entering the mount namespace alone
+        #   leaves the command at the namespace's root mount, which is not the root
+        #   init runs in where init was started from an initramfs and switched root
+        #   (DriveOS): there the command itself is not found.
+        base = [*base, "nsenter", "-t", init_pid, "-m", "-r"]
     # fmt: on
 
     return _run_func(

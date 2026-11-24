@@ -15,14 +15,21 @@
 
 A parameter set names directories of the running base (its slots) and replaces them,
 without a standby slot and without a reboot (unless a changed slot's `apply` is
-`reboot`). Its files are unpacked into the store in the running slot, and each slot
-the set fills is bound read-only over the base's directory: now, by a mount, and at
-every boot, by an entry in /etc/fstab ordered before local-fs.target, so that the slot
-holds the set before anything that reads it starts. The base's own files are never
-written, only hidden; a slot directory the base does not have is made (empty) as the
-mount point. A set names no base: it is applied on whatever base the ECU runs, as long
-as that base has room for its slots and the applies it does not carry itself (an
-`apply` inside the set's slots is the set's own file).
+`reboot`). Its files are unpacked into the store, and each slot the set fills is bound
+read-only over the base's directory: now, by a mount, and at every boot, by
+`otaclient mount-parameter-set` (`mount_parameter_set_command`), run by a unit ordered
+before local-fs.target, so that the slot holds the set before anything that reads it
+starts. The base's own files are never written, only hidden; a slot directory the base
+does not have is made (empty) as the mount point. A set names no base: it is applied
+on whatever base the ECU runs, as long as that base has room for its slots and the
+applies it does not carry itself (an `apply` inside the set's slots is the set's own
+file).
+
+The store is on /opt/data, the one place every layout can write and keep (a
+partition-based layout's root is read-only), and the same mechanism serves every
+layout: what differs is only what a read-only root refuses (a slot directory the
+image does not have cannot be made there) and what the boot controller does (its
+records, and how the same slot is rebooted).
 
 A slot's mount is taken away lazily, so that a program running from the slot's files
 keeps them until it exits. The `apply` of a slot runs once the slot holds a set's new
@@ -47,18 +54,35 @@ A switch is two-phase: the new set is put in place with the old one kept as
 `previous/`, and only once the slot records the new release is `previous/` dropped
 (`commit`, by one rename to `discard/`). A `previous/` found at startup is a switch
 that did not finish: it is completed when the slot already records the applied set's
-release, and rolled back otherwise.
+release, and rolled back otherwise. Every step renames before it mounts: `applied/` is
+always what is to be mounted, which is all the boot reads; a `previous/` there, the
+boot mounts nothing and leaves the switch to otaclient's start.
 
 What the ECU runs changes by an update only. Unpacked files found other than the
 set's at startup are kept as they are and recorded (`tree_mismatch`); the next update
 of the set puts its files in place again and applies every slot. A set is dropped
-only when it cannot be told what it is (its record is unreadable), when it was
-applied on another image than the running one (by the image's version file), or when
-a slot cannot be mounted.
+only when it cannot be told what it is (its record is unreadable), when it is not the
+running base's (`whose_set`: applied on another image, by the image's version file,
+or another slot of the same image), or when a slot cannot be mounted. One that is not
+the running base's, or that cannot be told, is never laid, and is dropped only once
+the running base is committed: a trial boot of a new base over a store the slots
+share may still fall back to the base the set was applied on, which lays it again.
+Nor is it the set before when a new set is applied: one is refused until the running
+base is committed, and then the other base's set is replaced.
 
-A full OTA writes a new slot from an image: its fstab is the image's, so the entries
-do not follow and the new base runs with its slots' defaults. Only the history is
-carried over, with a line saying the set was left behind.
+Nothing is laid from, stored into, recorded in or deleted from a store whose way
+from its mount point is not root's alone (`why_not_private`): another user who can
+rename a directory on it could plant a set whose `apply` runs as root.
+
+A full OTA writes a new slot from an image, and the new base runs with its slots'
+defaults. A store on the slot's own root filesystem is not carried over (not even by
+the persist files): only the history is, with a line saying the set was left behind.
+A store on a filesystem of its own (a partition shared by both slots) stays where it
+is, with that line and a mark that a full update was staged, and the new slot's
+otaclient drops the set once the new base is committed: it was applied on another
+image, or on another slot of the same image (the slot's records tell). Such a store
+needs the base's image ID to tell bases apart: a new set is refused on a base
+without one.
 """
 
 from __future__ import annotations
@@ -67,7 +91,6 @@ import contextlib
 import json
 import logging
 import os
-import re
 import shutil
 import stat
 import subprocess
@@ -89,8 +112,10 @@ from otaclient._types import VersionDetail
 from otaclient.configs.cfg import cfg
 from otaclient_common import _env
 from otaclient_common._io import (
+    ensure_private_dir,
     file_sha256,
     read_str_from_file,
+    remove_file,
     write_str_to_file_atomic,
 )
 from otaclient_common.linux import subprocess_run_wrapper
@@ -111,22 +136,31 @@ HISTORY_ROTATED_FNAME = "history.jsonl.1"
 HISTORY_MAX_SIZE = 1024**2
 """The history rotates past this: the file and the one before it are kept."""
 LAST_RUNNING_FNAME = "last-running-boot"
+"""What was last recorded as `running`; `last-<event>-boot` for any event recorded
+once per boot (`_once_per_boot`)."""
+BASE_CHANGE_FNAME = "base-change-staged.json"
+"""Written when a full update is staged while the slots share the store and it holds
+a set: the slot that boots next may run the same image the set was applied on, which
+the image ID alone cannot tell from the base it was applied on (`whose_set`)."""
 BOOT_ID_FPATH = "/proc/sys/kernel/random/boot_id"
 
-FSTAB_BEGIN = "# BEGIN otaclient parameter set (managed by otaclient, do not edit)"
-FSTAB_END = "# END otaclient parameter set"
+STORE_MODE = 0o700
+"""The store is root's alone; a directory made on the way to it is 0755
+(`ensure_private_dir`)."""
+
 MOUNT_OPTIONS = "ro,nosuid,nodev"
 """A slot may hold executables (a set may carry binaries and launch files), but
 nothing in it runs with privilege it does not have, and it holds no device."""
-FSTAB_OPTIONS = f"bind,{MOUNT_OPTIONS},nofail,x-systemd.before=local-fs.target"
-"""`nofail` alone also drops the ordering before local-fs.target (systemd.mount(5)):
-it is put back, so that what reads a slot starts after the set is bound, while a
-slot that cannot be mounted still does not stop the boot."""
+MOUNT_COMMAND_TIMEOUT = 60
+"""Seconds a mount command may take: the boot waits for the mounts, and must not hang
+on one."""
+STAGE_DPATH = "/run/otaclient-parameter-set"
+"""Where, on the host, a slot's bind is made read-only before it goes to the slot's
+path: a private tmpfs mounted for each bind and taken away after it (`bind_ro`)."""
 STDERR_TAIL = 1024
 """How much of a failed command's error output is kept in its error, from the end."""
 
 _FILES = TypeAdapter(list[ParameterSetFileEntry])
-_FSTAB_FIELDS = re.compile(r"[ \t]+")
 
 
 class ParameterSetFailed(Exception):
@@ -150,6 +184,36 @@ def _now() -> str:
 
 def _boot_id() -> str:
     return read_str_from_file(BOOT_ID_FPATH, _default="")
+
+
+def why_not_private(path: Path) -> str | None:
+    """Why the store at `path` cannot be trusted, None when it can: from the mount
+    point it is on down to it, every directory that exists is root's, not writable by
+    group or others, and not a symbolic link (`ensure_private_dir`).
+
+    A set's files are bound over the base and its `apply` runs as root: a directory on
+    the way that another user can write (others write under /opt/data on some
+    devices) would let that user rename the store away and plant a set of their own.
+    What otaclient makes on the way (0755, the store 0700) passes."""
+    try:
+        ensure_private_dir(path, create=False)
+    except Exception as e:
+        return str(e) or repr(e)
+    return None
+
+
+def on_the_active_root_filesystem(path: Path) -> bool:
+    """Whether `path` (the nearest of it and its parents that exists) is on the
+    filesystem of the running slot's root: the host's root from an app image.
+
+    A store there is the slot's own, and a full OTA writes the new slot without it; a
+    store elsewhere (a partition of its own, mounted by both slots) is shared, and
+    stays as it is across a full OTA."""
+    _root = _env.get_dynamic_client_chroot_path() or cfg.CANONICAL_ROOT
+    _at = Path(os.path.abspath(path))
+    while not _at.exists() and _at != _at.parent:
+        _at = _at.parent
+    return os.stat(_at).st_dev == os.stat(_root).st_dev
 
 
 def _stderr_tail(stderr: bytes | str | None) -> str:
@@ -269,6 +333,7 @@ class ParameterSlotMounter(Protocol):
     def make_mount_point(self, mount_point: str) -> bool: ...
     def bind_ro(self, source: Path, mount_point: str) -> None: ...
     def umount(self, mount_point: str) -> None: ...
+    def shows(self, mount_point: str, directory: Path) -> bool: ...
 
 
 class ApplyRunner(Protocol):
@@ -289,8 +354,10 @@ class HostParameterSlotMounter:
     """Mounts in the host's mount namespace, also from an app image: what the
     device's processes see is the host's view, and so are the paths checked.
 
-    The store and /etc/fstab are used at their paths as they are: an app image binds
-    the host's /opt and /etc at the same paths (samples/otaclient.service_app).
+    The store is used at its path as it is: an app image binds the host's /opt at the
+    same path (samples/otaclient.service_app,
+    samples/otaclient-parameter-set.service_app).
+    Each command is bounded by MOUNT_COMMAND_TIMEOUT.
     """
 
     def __init__(self, host_root: str | None = None) -> None:
@@ -309,10 +376,21 @@ class HostParameterSlotMounter:
                 check=True,
                 check_output=False,
                 set_host_mnt_ns=self._host_mnt_ns(),
+                timeout=MOUNT_COMMAND_TIMEOUT,
             )
             return True
         except Exception:
             return False
+
+    def shows(self, mount_point: str, directory: Path) -> bool:
+        """Whether what is mounted at `mount_point` is `directory` (a bind of it): the
+        same inode on the same device. False when either cannot be looked at."""
+        try:
+            _at = os.stat(self._on_host(mount_point))
+            _dir = os.stat(directory)
+        except OSError:
+            return False
+        return (_at.st_dev, _at.st_ino) == (_dir.st_dev, _dir.st_ino)
 
     def _on_host(self, mount_point: str) -> str:
         """The slot's path as declared, on the host, not a link someone put there."""
@@ -358,33 +436,70 @@ class HostParameterSlotMounter:
             os.close(_fd)
         return True
 
-    def bind_ro(self, source: Path, mount_point: str) -> None:
-        self._on_host(mount_point)
+    def _run(self, cmd: list[str], *, what: str) -> None:
         run_command(
-            ["mount", "--bind", str(source), mount_point],
-            what=f"binding {mount_point}",
+            cmd,
+            what=what,
             set_host_mnt_ns=self._host_mnt_ns(),
+            timeout=MOUNT_COMMAND_TIMEOUT,
+        )
+
+    def bind_ro(self, source: Path, mount_point: str) -> None:
+        """Bind `source` at `mount_point`, read-only, nosuid and nodev.
+
+        The bind is made in a private staging mount (STAGE_DPATH), made read-only
+            there, and only then moved to the slot's path. A bind made at the slot's
+            path reaches the peers of the mount it is under (a bind of the root, the
+            view of a service or a container that receives the host's mounts) the
+            moment it is made, writable, with setuid and devices, and the remount that
+            makes it read-only does not reach them. A mount that is moved reaches them
+            as it is. Nothing is left at the slot's path when a step fails.
+        """
+        self._on_host(mount_point)
+        _staged = f"{STAGE_DPATH}/slot"
+        if self.is_mounted(STAGE_DPATH):
+            # left by an otaclient stopped in the middle of a bind
+            self._run(
+                ["umount", "--lazy", STAGE_DPATH], what="clearing the staging mount"
+            )
+        self._run(["mkdir", "-p", STAGE_DPATH], what="making the staging directory")
+        self._run(
+            ["mount", "-t", "tmpfs", "-o", "mode=0700,size=64k"]
+            + ["otaclient-parameter-set", STAGE_DPATH],
+            what="mounting the staging tmpfs",
         )
         try:
-            run_command(
-                ["mount", "-o", f"remount,bind,{MOUNT_OPTIONS}", mount_point],
-                what=f"making {mount_point} read-only",
-                set_host_mnt_ns=self._host_mnt_ns(),
+            # private before anything is mounted in it: the bind and its remount
+            #   reach no peer
+            self._run(
+                ["mount", "--make-private", STAGE_DPATH],
+                what="making the staging mount private",
             )
-        except Exception:
-            # not left bound writable: the bind goes before the failure is raised
+            self._run(["mkdir", _staged], what="making the staging mount point")
+            self._run(
+                ["mount", "--bind", str(source), _staged],
+                what=f"binding {mount_point}",
+            )
+            self._run(
+                ["mount", "-o", f"remount,bind,{MOUNT_OPTIONS}", _staged],
+                what=f"making {mount_point} read-only",
+            )
+            self._run(
+                ["mount", "--move", _staged, mount_point],
+                what=f"moving the read-only bind to {mount_point}",
+            )
+        finally:
+            # with the bind when it did not move: nothing left bound writable
             with contextlib.suppress(Exception):
-                self.umount(mount_point)
-            raise
+                self._run(
+                    ["umount", "--lazy", STAGE_DPATH],
+                    what="unmounting the staging tmpfs",
+                )
 
     def umount(self, mount_point: str) -> None:
         # lazy: a program that runs from the slot's files (what an overlay holds)
         #   keeps them until it exits, rather than the slot staying as it was
-        run_command(
-            ["umount", "--lazy", mount_point],
-            what=f"unmounting {mount_point}",
-            set_host_mnt_ns=self._host_mnt_ns(),
-        )
+        self._run(["umount", "--lazy", mount_point], what=f"unmounting {mount_point}")
 
 
 def run_apply(command: str) -> None:
@@ -400,14 +515,6 @@ def run_apply(command: str) -> None:
         set_host_mnt_ns=_env.is_dynamic_client_running(),
         timeout=cfg.PARAMETER_SET_APPLY_TIMEOUT,
     )
-
-
-def _fstab_escape(path: str) -> str:
-    return path.replace("\\", "\\134").replace(" ", "\\040").replace("\t", "\\011")
-
-
-def _fstab_unescape(field: str) -> str:
-    return field.replace("\\040", " ").replace("\\011", "\t").replace("\\134", "\\")
 
 
 def _file_key(entry: ParameterSetFileEntry) -> tuple[str, int, str]:
@@ -429,18 +536,16 @@ def _slot_key(slot: RecordedSlot) -> tuple[str, str]:
 
 
 class ParameterSetStore:
-    """The store in the running slot, the fstab entries, the mounts and the history."""
+    """The store, the mounts and the history."""
 
     def __init__(
         self,
         *,
         root: Path | None = None,
-        fstab: Path | None = None,
         mounter: ParameterSlotMounter | None = None,
         runner: ApplyRunner | None = None,
     ) -> None:
         self.root = root or Path(cfg.PARAMETER_SET_DPATH)
-        self.fstab = fstab or Path(cfg.FSTAB_FPATH)
         self._mounter = mounter or HostParameterSlotMounter()
         self._runner = runner or run_apply
 
@@ -497,12 +602,105 @@ class ParameterSetStore:
         except FileNotFoundError:
             return []
 
+    # ------ whose the set is ------ #
+
+    def why_not_trusted(self) -> str | None:
+        """Why the store cannot be trusted (`why_not_private`), None when it can:
+        nothing is laid from it, stored into it, recorded in it or deleted from it
+        otherwise. Checked from the mount point the store is on, which an app image
+        sees as the host does (it binds the host's /opt recursively)."""
+        return why_not_private(self.root)
+
+    def is_shared(self) -> bool:
+        """Whether the store is on another filesystem than the running slot's root: a
+        partition both slots mount, which may hold the set another base applied."""
+        return not on_the_active_root_filesystem(self.root)
+
+    def base_change_staged(self) -> bool:
+        """Whether a full update was staged since the set was applied, the slots
+        sharing the store (`BASE_CHANGE_FNAME`)."""
+        return os.path.lexists(self.root / BASE_CHANGE_FNAME)
+
+    def whose_set(
+        self,
+        running_image_id: str,
+        *,
+        slot_records: CurrentSlotRecords | None = None,
+    ) -> tuple[AppliedRecord | None, str | None]:
+        """The set the store holds (the applied one, else the one an unfinished switch
+        left in `previous/`), and why it is not the running base's, None when it is.
+
+        It is not when its record cannot be read, when it was applied on another
+        image, when it was applied on an image without an ID while the slots share the
+        store (two such bases cannot be told apart), or when a full update was staged
+        since (the same image may have been installed again in the other slot) and
+        the slot does not record the set's release: the slot it was applied on still
+        does. Without `slot_records` (at boot), a staged full update is enough: who
+        runs is told at otaclient's start."""
+        try:
+            _set = self._read_record(self.applied_dir) or self._read_record(
+                self.previous_dir
+            )
+        except Exception as e:
+            return None, f"the set's record is unreadable: {e!r}"
+        if _set is None:
+            return None, None
+        if _set.base_image_id != running_image_id:
+            return _set, (
+                f"the set was applied on image {_set.base_image_id!r}, the slot "
+                f"runs image {running_image_id!r}"
+            )
+        if not _set.base_image_id and self.is_shared():
+            return _set, (
+                "the set was applied on an image without an image ID, and the slots "
+                "share the store: which base it was applied on cannot be told"
+            )
+        if self.base_change_staged():
+            if slot_records is None:
+                return _set, (
+                    "a full update was staged since the set was applied: which slot "
+                    "runs is told when otaclient starts"
+                )
+            if not _set.is_recorded_by(slot_records):
+                return _set, (
+                    "a full update was staged since the set was applied, and this "
+                    "slot does not record the set's release: it runs the new base"
+                )
+        return _set, None
+
+    def applied_record_of(
+        self, running_image_id: str, *, slot_records: CurrentSlotRecords
+    ) -> AppliedRecord | None:
+        """The applied set's record when the set is the running base's (`whose_set`):
+        what the set before an update is, and what it covers; None otherwise."""
+        if self.whose_set(running_image_id, slot_records=slot_records)[1] is not None:
+            return None
+        return self.applied_record()
+
+    def set_aside_another_bases_set(
+        self, running_image_id: str, *, slot_records: CurrentSlotRecords
+    ) -> None:
+        """Before a switch, the running base committed: a set in the store that is not
+        the running base's (`whose_set`) is not the set before. It is dropped as at
+        otaclient's start, nothing unmounted: the switch is then a first set's, every
+        slot of the new set applied, and a failure undoes it to the base's defaults,
+        never to the other base's set."""
+        _set, _why = self.whose_set(running_image_id, slot_records=slot_records)
+        if _why is not None:
+            self._drop_another_bases(
+                _set, f"replaced by a set on image {running_image_id!r}: {_why}"
+            )
+
     def record_event(self, event: str, **fields: Any) -> None:
         """Append one line of evidence. Never raises: the history is a record of
-        what happened, not a condition for it."""
+        what happened, not a condition for it. Nothing is written into a store that
+        is not root's alone."""
         _line = json.dumps({"time": _now(), "event": event, **fields}, sort_keys=True)
+        if (_why := self.why_not_trusted()) is not None:
+            logger.warning(f"not recording {event}: the store is not trusted ({_why})")
+            return
         try:
-            self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            ensure_private_dir(self.root, mode=STORE_MODE)
             if (
                 self.history_file.exists()
                 and self.history_file.stat().st_size > HISTORY_MAX_SIZE
@@ -517,7 +715,7 @@ class ParameterSetStore:
 
     def prepare_staging(self) -> Path:
         shutil.rmtree(self.staging_dir, ignore_errors=True)
-        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        ensure_private_dir(self.root, mode=STORE_MODE)
         self.staging_dir.mkdir(mode=0o700)
         return self.staging_dir
 
@@ -534,56 +732,6 @@ class ParameterSetStore:
             self.staging_dir / RECORD_FNAME, record.model_dump_json()
         )
         os.sync()
-
-    # ------ fstab ------ #
-
-    def _fstab_lines(self) -> tuple[list[str], list[str]]:
-        """The lines of /etc/fstab outside otaclient's block, and those inside it.
-        Lines are split as libmount splits them: at `\\n` only."""
-        try:
-            _text = self.fstab.read_text()
-        except FileNotFoundError:
-            return [], []
-        _lines = _text.split("\n")
-        if _lines and _lines[-1] == "":
-            _lines.pop()
-        _kept: list[str] = []
-        _block: list[str] = []
-        _inside = False
-        for _l in _lines:
-            if _l.strip(" \t") == FSTAB_BEGIN:
-                _inside = True
-            elif _l.strip(" \t") == FSTAB_END:
-                _inside = False
-            elif _inside:
-                _block.append(_l)
-            else:
-                _kept.append(_l)
-        return _kept, _block
-
-    def _fstab_mount_points(self) -> list[str]:
-        """The mount points of otaclient's block of /etc/fstab: what it mounts when
-        its record cannot tell."""
-        _points: list[str] = []
-        for _l in self._fstab_lines()[1]:
-            _fields = _FSTAB_FIELDS.split(_l.strip(" \t"))
-            if len(_fields) >= 2:
-                _points.append(_fstab_unescape(_fields[1]))
-        return _points
-
-    def _write_fstab(self, record: AppliedRecord | None) -> None:
-        """Rewrite otaclient's block of /etc/fstab: one bind entry per slot the
-        applied set fills, or no block at all."""
-        _kept, _ = self._fstab_lines()
-        if record is not None and record.slots:
-            _kept.append(FSTAB_BEGIN)
-            for _slot in record.slots:
-                _kept.append(
-                    f"{_fstab_escape(str(self.tree_of(_slot)))}\t"
-                    f"{_fstab_escape(_slot.path)}\tnone\t{FSTAB_OPTIONS}\t0\t0"
-                )
-            _kept.append(FSTAB_END)
-        write_str_to_file_atomic(self.fstab, "\n".join(_kept) + "\n")
 
     # ------ mounts and applies ------ #
 
@@ -635,7 +783,9 @@ class ParameterSetStore:
     def _put_in_place(
         self, record: AppliedRecord | None, changed: Iterable[RecordedSlot]
     ) -> bool:
-        self._write_fstab(record)
+        """Mount `record`, the applied set by now, and run the `apply` of `changed`.
+        The renames that made it the applied one are flushed before an `apply` runs:
+        a boot from here on mounts what an `apply` took effect with."""
         self._mount(record)
         os.sync()
         return self._run_applies(changed)
@@ -707,7 +857,7 @@ class ParameterSetStore:
         try:
             # the new set's slots too: a switch that failed before may have left one
             #   (anything else mounted there was refused before the update began)
-            self._unmount([*self._paths(_old, _new), *self._fstab_mount_points()])
+            self._unmount(self._paths(_old, _new))
             if self.applied_dir.exists():
                 os.replace(self.applied_dir, self.previous_dir)
             _renamed = True
@@ -753,11 +903,19 @@ class ParameterSetStore:
         if (_record := self.applied_record()) is not None:
             self.record_event("applied", **_record.evidence())
 
-    def roll_back(self, *, cause: Exception) -> bool:
+    def roll_back(self, *, cause: Exception, unmounted: Iterable[str] = ()) -> bool:
         """Put `previous/` (or no set, when there was none) back in place of the
         applied set, and run the `apply` of the slots the set put back fills that
         change back; nothing runs for a slot it does not fill. Never raises: returns
-        whether the slots are back, a failure is recorded."""
+        whether the slots are back, a failure is recorded.
+
+        `unmounted` are the paths no set was mounted at when the roll back began (the
+        boot mounts nothing while a switch is unfinished): what reads them started
+        with the base's, so a slot the set put back fills there is applied too.
+
+        The renames come first, the mounts after: whatever fails below, `applied/`
+        is the set put back, and that is what a later boot and otaclient's next start
+        lay, not the failed one."""
         try:
             _failed = self.applied_record()
             _back = self._read_record(self.previous_dir)
@@ -772,18 +930,23 @@ class ParameterSetStore:
                 # one side is not there (crashed between the two renames of a switch,
                 #   or no set before): every slot the set put back fills changes
                 _changed = list(_back.slots) if _back else []
-            _points = [*self._paths(_failed, _back), *self._fstab_mount_points()]
-            # first, by renames, the failed set leaves applied/ (for discard/) and
-            #   the set put back (or none) takes its place, and what mounts at boot
-            #   is the set put back's: whatever fails below, a later boot and
-            #   otaclient's next start lay the set put back, not the failed one
+            _unmounted = set(unmounted)
+            _changed += [
+                _s
+                for _s in (_back.slots if _back else [])
+                if _s.path in _unmounted and _s not in _changed
+            ]
+            _points = self._paths(_failed, _back)
+            # the failed set leaves applied/ (for discard/), and the set put back (or
+            #   none) takes its place
             self._set_aside_applied()
             if self.previous_dir.exists():
                 os.replace(self.previous_dir, self.applied_dir)
-            self._write_fstab(_back)
             self._unmount(_points)
             shutil.rmtree(self.discard_dir, ignore_errors=True)
-            self._put_in_place(_back, _changed)
+            _reboot = self._put_in_place(_back, _changed)
+            if _unmounted:
+                self._reboot_required(_reboot, "rolled_back")
             self.record_event(
                 "rolled_back",
                 cause=str(cause),
@@ -795,15 +958,23 @@ class ParameterSetStore:
             self.record_event("roll_back_failed", cause=str(cause), error=str(e))
             return False
 
-    def _complete_switch(self) -> None:
+    def _complete_switch(self, *, unmounted: Iterable[str] = ()) -> None:
         """A switch whose release the slot already records, crashed before its commit
         finished: its mounts are put back from applied/ (a slot bound before the
-        rename sees previous/), then it is committed. No `apply` runs: the switch ran
-        them, or the boot since restarted what reads the slots."""
+        rename sees previous/), then it is committed.
+
+        The switch ran the `apply`s; a slot at one of the `unmounted` paths (the boot
+        mounts nothing while a switch is unfinished) was read with the base's since,
+        and its `apply` runs again once the switch is committed."""
         _applied = self.applied_record()
-        self._unmount([*self._paths(_applied), *self._fstab_mount_points()])
+        self._unmount(self._paths(_applied))
         self._put_in_place(_applied, ())
         self.commit()
+        _unmounted = set(unmounted)
+        if _applied is not None and (
+            _again := [_s for _s in _applied.slots if _s.path in _unmounted]
+        ):
+            self._apply_again(_applied, _again, after="recovered")
 
     # ------ the applied set, verified ------ #
 
@@ -848,24 +1019,189 @@ class ParameterSetStore:
             return f"{len(_missing)} files of the set are missing, {_missing[0]} first"
         return None
 
+    # ------ at boot ------ #
+
+    def mount_at_boot(self, running_image_id: str) -> bool:
+        """At boot, before local-fs.target (`otaclient mount-parameter-set`): bind
+        each slot of the applied set that is not mounted over its path, read-only,
+        before anything that reads it starts. The mount point is made when the image
+        has none and it can be made there.
+
+        Only what `applied/` says is mounted, and only when it holds: what is not
+        decided here is left to otaclient's start (`check_at_startup`), which has the
+        slot's records to decide by. Nothing is laid from a store that is not root's
+        alone, nor a set this boot cannot tell is the running base's (`whose_set`
+        without the slot's records: a trial boot of a new base may run over the
+        other base's set in a store the slots share), nor a set whose record cannot
+        be read or is of a newer schema than this otaclient's: those are logged and
+        the store is left as it is. Nothing is mounted while a switch is unfinished
+        (`previous/`: otaclient completes it or rolls it back). No `apply` runs:
+        what reads a slot has not started yet. One event is recorded when the set is
+        the running base's, none otherwise.
+
+        Returns False when a slot of the set, or the set itself, could not be
+        mounted; a slot that cannot be mounted does not keep the others from being
+        mounted. Never raises.
+        """
+        _boot = _boot_id()
+        try:
+            if not (
+                os.path.lexists(self.applied_dir) or os.path.lexists(self.previous_dir)
+            ):
+                logger.info("no parameter set is applied")
+                return True
+            if (_untrusted := self.why_not_trusted()) is not None:
+                logger.error(
+                    f"the parameter set store is not root's alone ({_untrusted}): "
+                    "nothing is mounted"
+                )
+                return False
+            _set, _why = self.whose_set(running_image_id)
+            if _set is None:
+                if _why is None:
+                    logger.info("no parameter set is applied")
+                    return True
+                logger.error(
+                    f"{_why}: nothing is mounted, otaclient drops the set once this "
+                    "base is committed"
+                )
+                return False
+            if _why is not None:
+                logger.warning(
+                    f"parameter set {_set.describe()} is not laid ({_why}): the store "
+                    "is left as it is, otaclient decides when it starts, and drops "
+                    "the set once this base is committed if it is not this base's"
+                )
+                return True
+            if _set.schema_version > RECORD_SCHEMA_VERSION:
+                logger.warning(
+                    f"parameter set {_set.describe()} was recorded with schema "
+                    f"{_set.schema_version}, newer than this otaclient's "
+                    f"{RECORD_SCHEMA_VERSION}: nothing is mounted, left to "
+                    "otaclient's start"
+                )
+                return True
+            _record = self._read_record(self.applied_dir)
+            if self.previous_dir.exists() or _record is None:
+                logger.warning(
+                    "a parameter set switch did not finish: nothing is mounted, "
+                    "otaclient completes it or rolls it back when it starts"
+                )
+                self.record_event(
+                    "not_mounted_at_boot",
+                    reason="a switch did not finish",
+                    boot_id=_boot,
+                    set_manifest_digest=_set.set_manifest_digest,
+                )
+                return True
+        except Exception as e:
+            logger.error(f"failed to read the parameter set store: {e!r}")
+            return False
+
+        _mounted: list[str] = []
+        _already: list[str] = []
+        _made: list[str] = []
+        _failed: dict[str, str] = {}
+        for _slot in _record.slots:
+            try:
+                if self._mounter.is_mounted(_slot.path):
+                    _already.append(_slot.name)
+                    continue
+                if self._mounter.make_mount_point(_slot.path):
+                    logger.info(
+                        f"made {_slot.path}, the mount point of slot {_slot.name}"
+                    )
+                    _made.append(_slot.path)
+                self._mounter.bind_ro(self.tree_of(_slot), _slot.path)
+                logger.info(f"slot {_slot.name} is bound at {_slot.path}")
+                _mounted.append(_slot.name)
+            except Exception as e:
+                logger.error(
+                    f"slot {_slot.name} could not be mounted at {_slot.path}: {e}"
+                )
+                _failed[_slot.name] = str(e)
+        self.record_event(
+            "mounted_at_boot",
+            boot_id=_boot,
+            set_manifest_digest=_record.set_manifest_digest,
+            mounted=_mounted,
+            already_mounted=_already,
+            mount_points_made=_made,
+            failed=_failed,
+        )
+        return not _failed
+
+    # ------ at otaclient's start ------ #
+
     def check_at_startup(
-        self, running_image_id: str, *, slot_records: CurrentSlotRecords
+        self,
+        running_image_id: str,
+        *,
+        slot_records: CurrentSlotRecords,
+        base_committed: bool,
     ) -> AppliedRecord | None:
         """At otaclient's start: the applied set, kept as the last update left it.
 
         `running_image_id` is the running image's ID from its version file, "" when
         it has none (or none otaclient reads), as `base_image_id` was recorded.
+        `base_committed` is whether the running base is committed (the slot booted at
+        SUCCESS or INITIALIZED, otaclient not the downloaded client), as the boot
+        controller concluded the boot.
 
-        The fstab entries mounted the set at boot, before anything read it; this is
-        where it is checked, and where that is recorded. A switch that did not finish
-        (`previous/` still there) is completed when the slot records the applied
-        set's release, and rolled back otherwise. Files other than the set's are kept
-        and recorded: what the ECU runs changes by an update only. The set is dropped
-        (the slots get the base's defaults, the slot reports the base) only when its
-        record is unreadable, when it was applied on another image than the running
-        one, or when a slot cannot be mounted; an `apply` that fails after a slot was
-        mounted again is recorded, the set kept.
+        The boot-time unit (`mount_at_boot`) mounted the set at boot, before anything
+        read it; this is where it is checked, and where that is recorded. A switch
+        that did not finish (`previous/` still there) is completed when the slot
+        records the applied set's release, and rolled back otherwise. Files other
+        than the set's are kept and recorded: what the ECU runs changes by an update
+        only. A slot that is not mounted (the boot-time unit is not installed, could
+        not mount it, or left it to this start after a full update was staged) is
+        mounted, and its `apply` runs.
+
+        A set that is not the running base's (`whose_set`), or whose record cannot be
+        read, is not laid. It is dropped once the running base is committed, with
+        nothing unmounted (it was never laid on this base); until then (a trial boot
+        of a new base that may still fall back to the base the set was applied on)
+        it is kept as it is, recorded once per boot. That is for a store the slots
+        share only: a store on the slot's own root holds no set of a base the ECU can
+        fall back to, and its set of another base is dropped whatever the status. Otherwise the set is dropped
+        (the slots get the base's defaults, the slot reports the base) only when a
+        slot cannot be mounted; an `apply` that fails after a slot was mounted again
+        is recorded, the set kept. Nothing is laid, recorded or deleted when the
+        store is not root's alone.
         """
+        if (_untrusted := self.why_not_trusted()) is not None:
+            logger.error(
+                f"the parameter set store is not root's alone ({_untrusted}): "
+                "nothing is laid from it, and nothing deleted"
+            )
+            return None
+        # whose set the store holds, before anything in it changes
+        _set, _why = self.whose_set(running_image_id, slot_records=slot_records)
+        if _why is not None:
+            # only a store the slots share may hold the set of a base the ECU can
+            #   fall back to: one on this slot's own root came with this slot
+            if base_committed or not self.is_shared():
+                self._drop_another_bases(_set, _why)
+            else:
+                self._keep_for_its_base(_set, _why)
+            return None
+        _because = (
+            "the boot-time unit (otaclient mount-parameter-set) did not mount them"
+        )
+        if self.base_change_staged():
+            # the slot the set was applied on: the full update staged from it did not
+            #   switch, or fell back; the boot left the set to this start
+            logger.warning(
+                "a full update was staged since the parameter set was applied, and "
+                "this slot still records the set's release: laid again"
+            )
+            remove_file(self.root / BASE_CHANGE_FNAME)
+            self.record_event(
+                "base_change_not_taken",
+                set_manifest_digest=_set.set_manifest_digest if _set else None,
+            )
+            _because = "a full update was staged, the boot left them to this start"
+
         shutil.rmtree(self.discard_dir, ignore_errors=True)
         if self.previous_dir.exists():
             self._finish_switch(slot_records)
@@ -876,80 +1212,120 @@ class ParameterSetStore:
             self._drop(None, f"the set's record is unreadable: {e!r}")
             return None
         if _record is None:
-            self._clear_stale_fstab()
             return None
         logger.info(
             f"parameter set {_record.describe()} is applied on image "
             f"{_record.base_image_id or '(no version file)'}"
         )
-
-        if running_image_id != _record.base_image_id:
-            # not this slot's set (copied in with the slot): its records are not of it
-            self._drop(
-                None,
-                f"the set was applied on image {_record.base_image_id!r}, the slot "
-                f"runs image {running_image_id!r}",
-                mount_points=self._paths(_record),
-                evidence=_record.evidence(),
-            )
-            return None
         if (_mismatch := self.check_tree(_record)) is not None:
             logger.error(
                 f"the files of {_record.describe()} are not the set's ({_mismatch}): "
                 "kept as they are until the next update of the set"
             )
 
-        if sorted(self._fstab_mount_points()) != sorted(self._paths(_record)):
-            # a switch or a drop cut short between its steps: what mounts at boot is
-            #   the applied set's again
-            logger.warning(
-                f"otaclient's fstab block is not {_record.describe()}'s: writing it"
-            )
-            self._write_fstab(_record)
-            self.record_event("fstab_restored", set=_record.set_manifest_digest)
         _unmounted = [
             _s for _s in _record.slots if not self._mounter.is_mounted(_s.path)
         ]
         if _unmounted and not self._mount_again(
-            _record, _unmounted, slot_records=slot_records
+            _record, _unmounted, slot_records=slot_records, because=_because
         ):
             return None
 
         self._record_running(_record, _mismatch)
         return _record
 
-    def _clear_stale_fstab(self) -> None:
-        """No set is applied, but otaclient's fstab block mounts some (a roll back or
-        a drop cut short between its steps): it goes, and so does what it mounted."""
-        _stale = self._fstab_mount_points()
-        if not _stale:
-            return
+    def _keep_for_its_base(self, record: AppliedRecord | None, why: str) -> None:
+        """A set not laid, kept for the base it may be (a trial boot not committed):
+        said each start, recorded once per boot."""
+        _what = record.describe() if record else "the applied set"
         logger.warning(
-            f"otaclient's fstab block mounts {_stale} with no set applied: clearing it"
+            f"{_what} is not laid ({why}): kept as it is until this base is committed"
         )
+        _digest = record.set_manifest_digest if record else ""
+        if self._once_per_boot("not-laid", _digest):
+            self.record_event(
+                "not_laid",
+                reason=why,
+                boot_id=_boot_id(),
+                **(record.evidence() if record else {}),
+            )
+
+    def _once_per_boot(self, name: str, key: str) -> bool:
+        """Whether `key` is new in this boot for `name` (`last-<name>-boot`), noted
+        when it is: what is recorded once per boot is not recorded again by an
+        otaclient that restarts."""
+        _boot = _boot_id()
+        _key = " ".join([_boot, *key.split()]) if key else _boot
+        _file = self.root / f"last-{name}-boot"
+        if read_str_from_file(_file, _default="") == _key:
+            return False
         try:
-            self._write_fstab(None)
-            self._unmount(_stale)
-            self.record_event("fstab_cleared", mount_points=_stale)
+            write_str_to_file_atomic(_file, _key)
         except Exception as e:
-            logger.error(f"failed to clear otaclient's fstab block: {e}")
-            self.record_event("fstab_clear_failed", error=str(e))
+            logger.warning(f"failed to note {name} for this boot: {e!r}")
+        return True
+
+    def _drop_another_bases(self, record: AppliedRecord | None, why: str) -> None:
+        """Drop a set that is not the running base's, the running base committed: the
+        set and a switch it left unfinished leave the store, and so does a staged
+        full update's mark. It is not laid on this base at boot, so what is mounted
+        at its slots' paths is this base's own and stays; only a bind of the set's
+        own directory (laid in this boot, before the running image changed in
+        place) is taken away, once."""
+        _what = record.describe() if record else "the applied set"
+        logger.warning(f"{_what} is not this base's ({why}): dropped")
+        _evidence = record.evidence() if record else {}
+        _ours: list[str] = []
+        for _slot in record.slots if record else []:
+            try:
+                if self._mounter.is_mounted(_slot.path) and self._mounter.shows(
+                    _slot.path, self.tree_of(_slot)
+                ):
+                    _ours.append(_slot.path)
+            except Exception as e:
+                logger.warning(f"cannot tell what is mounted at {_slot.path}: {e!r}")
+        try:
+            self._set_aside_applied()
+            for _point in _ours:
+                logger.info(f"taking the set's own mount at {_point} away")
+                self._mounter.umount(_point)
+            shutil.rmtree(self.discard_dir, ignore_errors=True)
+            shutil.rmtree(self.previous_dir, ignore_errors=True)
+            remove_file(self.root / BASE_CHANGE_FNAME)
+        except Exception as e:
+            logger.error(f"failed to drop {_what}: {e!r}")
+            self.record_event("drop_failed", reason=why, error=str(e), **_evidence)
+            return
+        self.record_event("dropped", reason=why, **_evidence)
 
     def _finish_switch(self, slot_records: CurrentSlotRecords) -> None:
         try:
             _applied = self._read_record(self.applied_dir)
         except Exception:
             _applied = None
+        try:
+            _before = self._read_record(self.previous_dir)
+        except Exception:
+            _before = None
+        # the boot mounts nothing while a switch is unfinished: after a reboot, what
+        #   reads these slots started with the base's
+        _unmounted = [
+            _p
+            for _p in self._paths(_applied, _before)
+            if not self._mounter.is_mounted(_p)
+        ]
         if _applied is not None and _applied.is_recorded_by(slot_records):
             logger.warning(
                 f"the switch to {_applied.describe()} was recorded but not committed: "
                 "completing it"
             )
-            self._complete_switch()
+            self._complete_switch(unmounted=_unmounted)
             self.record_event("recovered", completed=True)
             return
         logger.warning("a parameter set switch did not finish: rolling it back")
-        if self.roll_back(cause=RuntimeError("an unfinished switch")):
+        if self.roll_back(
+            cause=RuntimeError("an unfinished switch"), unmounted=_unmounted
+        ):
             self.record_event("recovered", completed=False)
 
     def _mount_again(
@@ -958,13 +1334,15 @@ class ParameterSetStore:
         unmounted: list[RecordedSlot],
         *,
         slot_records: CurrentSlotRecords,
+        because: str,
     ) -> bool:
-        """Slots of the applied set that are not mounted: fstab's entries are
-        `nofail`, so they ran with the base's defaults until now. They are mounted and
-        their `apply` runs again; a slot that cannot be mounted drops the set (False),
-        an `apply` that fails is recorded and the set kept (True)."""
+        """Slots of the applied set that are not mounted (`because`: the boot-time
+        unit is not installed, failed for them, or left them to this start), so they
+        ran with the base's defaults until now. They are mounted and their `apply`
+        runs again; a slot that cannot be mounted drops the set (False), an `apply`
+        that fails is recorded and the set kept (True)."""
         logger.warning(
-            f"slots {[_s.name for _s in unmounted]} are not mounted: "
+            f"slots {[_s.name for _s in unmounted]} are not mounted ({because}): "
             "mounting them and running their apply"
         )
         try:
@@ -983,34 +1361,35 @@ class ParameterSetStore:
             set=record.set_manifest_digest,
             slots=[_s.name for _s in unmounted],
         )
+        self._apply_again(record, unmounted, after="remounted")
+        return True
+
+    def _apply_again(
+        self, record: AppliedRecord, slots: list[RecordedSlot], *, after: str
+    ) -> None:
+        """Run the `apply` of `slots`, mounted at otaclient's start: one that fails is
+        recorded, the set kept."""
         try:
-            self._reboot_required(self._run_applies(unmounted), "remounted")
+            self._reboot_required(self._run_applies(slots), after)
         except Exception as e:
             logger.error(f"the apply of the slots mounted again failed: {e}")
             self.record_event(
                 "apply_failed", set=record.set_manifest_digest, error=str(e)
             )
-        return True
 
     def _record_running(self, record: AppliedRecord, mismatch: str | None) -> None:
         """`running` once per boot, `tree_mismatch` once per boot and finding: an
         otaclient restarting in a loop adds no lines."""
         _boot = _boot_id()
-        _seen = read_str_from_file(self.root / LAST_RUNNING_FNAME, _default="")
-        # one line: what is compared with what the file gives back
-        _key = _boot if mismatch is None else " ".join([_boot, *mismatch.split()])
-        if _seen == _key:
-            return
-        if _seen.split(" ", 1)[0] != _boot:
+        if self._once_per_boot("running", ""):
             self.record_event("running", boot_id=_boot, **record.evidence())
-        if mismatch is not None:
+        if mismatch is not None and self._once_per_boot("tree-mismatch", mismatch):
             self.record_event(
                 "tree_mismatch",
                 reason=mismatch,
                 boot_id=_boot,
                 set=record.set_manifest_digest,
             )
-        write_str_to_file_atomic(self.root / LAST_RUNNING_FNAME, _key)
 
     def _reboot_required(self, required: bool, after: str) -> None:
         if required:
@@ -1031,14 +1410,14 @@ class ParameterSetStore:
         evidence: dict[str, Any] | None = None,
     ) -> None:
         """Drop the applied set: the slot reports the base again (when its records
-        are still this set's release), the mounts and the fstab entries go, then the
-        unpacked files. No `apply` runs: the slots go back to the base's when what
+        are still this set's release), the set leaves `applied/`, its mounts go, then
+        the unpacked files. No `apply` runs: the slots go back to the base's when what
         reads them restarts.
 
         Without a `record` to go by (unreadable, or not this slot's), the slot's
-        records are left as they are; what is unmounted is `mount_points` and what
-        otaclient's fstab block mounts, and what the history says of the set is
-        `evidence`."""
+        records are left as they are; what is unmounted is `mount_points` (none for
+        an unreadable record: the boot mounts none of it), and what the history says
+        of the set is `evidence`."""
         _what = record.describe() if record else "the applied set"
         logger.error(f"{_what} does not hold ({why}): dropping it")
         _evidence = record.evidence() if record else (evidence or {})
@@ -1052,16 +1431,10 @@ class ParameterSetStore:
                     version=record.base_version,
                     version_detail=record.base_version_detail,
                 )
-            _points = [
-                *self._paths(record),
-                *(mount_points or []),
-                *self._fstab_mount_points(),
-            ]
-            # first, by a rename, the set leaves applied/ and what mounts at boot
-            #   lays nothing: whatever fails below, neither a later boot nor
-            #   otaclient's next start lays it again
+            _points = [*self._paths(record), *(mount_points or [])]
+            # first, by a rename, the set leaves applied/: whatever fails below,
+            #   neither a later boot nor otaclient's next start lays it again
             self._set_aside_applied()
-            self._write_fstab(None)
             self._unmount(_points)
             shutil.rmtree(self.discard_dir, ignore_errors=True)
         except Exception as e:
@@ -1070,23 +1443,81 @@ class ParameterSetStore:
             return
         self.record_event("dropped", reason=why, **_evidence)
 
-    def carry_history_to(self, standby_root: Path, *, reason: str) -> None:
-        """Copy the history into the slot a full OTA wrote, saying that the applied
-        set stays behind. Never raises."""
+    # ------ at a full OTA ------ #
+
+    def carry_history_to(self, standby_root: Path | None, *, to_version: str) -> None:
+        """At a full update, which writes a new slot from an image: the applied set
+        stays behind, and the history says so. Never raises.
+
+        A store on the running slot's own root filesystem is not in the new slot:
+        the history is copied into `standby_root`, with that line, unless the way to
+        the store there is not root's alone (a link the new image has on it, say).
+        A store elsewhere (a partition of its own, shared by the slots), or a new slot
+        written as an image (no `standby_root`), keeps the set: the line is added
+        where it is (`shared`), and when the store holds a set, so is the mark that a
+        full update was staged (`BASE_CHANGE_FNAME`): the new slot may run the same
+        image, and only the slot's records then tell it from the one the set was
+        applied on (`whose_set`)."""
         try:
             _record = self.applied_record()
             if _record is None and not self.history_file.exists():
                 return  # no set was ever applied here: nothing to carry
+            _left_behind = {
+                "reason": f"full OTA to {to_version}",
+                "set": _record.set_manifest_digest if _record else None,
+                "set_version": _record.set_version if _record else None,
+            }
+            if standby_root is None or self.is_shared():
+                if _record is not None and self.why_not_trusted() is None:
+                    write_str_to_file_atomic(
+                        self.root / BASE_CHANGE_FNAME,
+                        json.dumps(
+                            {
+                                "boot_id": _boot_id(),
+                                "to_version": to_version,
+                                "time": _now(),
+                            }
+                        ),
+                    )
+                self.record_event("left_behind", shared=True, **_left_behind)
+                return
             _dst = standby_root / Path(cfg.PARAMETER_SET_DPATH).relative_to("/")
-            _dst.mkdir(mode=0o700, parents=True, exist_ok=True)
+            try:
+                ensure_private_dir(_dst, mode=STORE_MODE)
+            except PermissionError as e:
+                logger.warning(f"not carrying the parameter set history: {e}")
+                return
             for _fname in (HISTORY_ROTATED_FNAME, HISTORY_FNAME):
                 if (self.root / _fname).exists():
                     shutil.copyfile(self.root / _fname, _dst / _fname)
-            ParameterSetStore(root=_dst, fstab=self.fstab).record_event(
-                "left_behind",
-                reason=reason,
-                set=_record.set_manifest_digest if _record else None,
-                set_version=_record.set_version if _record else None,
+            ParameterSetStore(root=_dst).record_event(
+                "left_behind", shared=False, **_left_behind
             )
         except Exception as e:
             logger.warning(f"failed to carry the parameter set history: {e!r}")
+
+
+def mount_parameter_set_command() -> int:
+    """`otaclient mount-parameter-set`: lay the applied parameter set at boot.
+
+    Run by a oneshot unit ordered before local-fs.target
+    (samples/otaclient-parameter-set.service_app), in the app image as otaclient runs
+    there: mounted in the host's namespace, the host's root seen at its chroot path.
+    It needs the store and the running image's version file only: no gRPC and no
+    boot controller, and it bounds each command it runs. Importing otaclient's
+    configuration still parses ecu_info.yaml and proxy_info.yaml, which it does not
+    use: before /boot is mounted, that logs that they were not found. Returns the
+    exit code: 0 when every slot of the applied set is mounted (or nothing is to be),
+    1 when one is not. Never raises.
+    """
+    logging.basicConfig(level=logging.INFO, format=cfg.LOG_FORMAT)
+    try:
+        # imported here: the version file module imports this one (it reads the
+        #   store), so a module-level import would be a cycle
+        from otaclient.boot_control._image_version_file import running_image_id
+
+        _ok = ParameterSetStore().mount_at_boot(running_image_id())
+    except Exception as e:
+        logger.exception(f"failed to mount the parameter set: {e!r}")
+        return 1
+    return 0 if _ok else 1

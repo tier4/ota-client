@@ -11,15 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The parameter set store: the switch, fstab, the check at startup and the history."""
+"""The parameter set store: the switch, the mounts at boot, the check at startup and
+the history."""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
-import shutil
+import runpy
 import stat
 import subprocess
+import sys
 from hashlib import sha256
 from pathlib import Path
 
@@ -31,9 +34,8 @@ from pytest_mock import MockerFixture
 
 from otaclient import parameter_set
 from otaclient._types import VersionDetail
+from otaclient.boot_control import _image_version_file
 from otaclient.parameter_set import (
-    FSTAB_BEGIN,
-    FSTAB_END,
     HISTORY_MAX_SIZE,
     TREE_DNAME,
     AppliedRecord,
@@ -42,9 +44,12 @@ from otaclient.parameter_set import (
     ParameterSetFailed,
     ParameterSetStore,
     RecordedSlot,
+    on_the_active_root_filesystem,
     run_apply,
     run_command,
+    why_not_private,
 )
+from otaclient_common import _io
 
 PARAMS = ParameterSlot(
     name="individual_params",
@@ -58,7 +63,6 @@ LAUNCH = ParameterSlot(
 )
 REBOOT = ParameterSlot(name="kernel", path="/opt/kernel-params", apply="reboot")
 BASE_ID = "base-image"
-FSTAB = "UUID=abc\t/\text4\terrors=remount-ro\t0\t1\n"
 BASE_DETAIL = VersionDetail(release_name="base", release_id="b", image_id="base-image")
 
 
@@ -100,6 +104,8 @@ class FakeMounter:
 
     def shows(self, mount_point: str, directory: Path) -> bool:
         """Whether the bind at `mount_point` is of `directory` as it is now."""
+        if mount_point not in self.mounted or not directory.exists():
+            return False
         return self.mounted[mount_point][1] == directory.stat().st_ino
 
 
@@ -128,6 +134,34 @@ class FakeSlotRecords:
         self.version, self.detail = version, version_detail
 
 
+@pytest.fixture(autouse=True)
+def tmp_path_is_a_mount_point(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The way to a store is checked from the mount point it is on down, and the real
+    mount point of tmp_path has /tmp on the way, which everyone can write: here
+    tmp_path, private to us, stands in for it. What a test makes there is made under
+    the umask otaclient runs under, systemd's."""
+    _real = _io._mount_point_of
+    monkeypatch.setattr(
+        _io,
+        "_mount_point_of",
+        lambda _p: tmp_path if tmp_path in (_p, *_p.parents) else _real(_p),
+    )
+    _old_umask = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(_old_umask)
+
+
+@pytest.fixture(autouse=True)
+def on_the_slots_own_root(mocker: MockerFixture):
+    """Whether the store is on the running slot's root filesystem: yes, unless a test
+    says the slots share it."""
+    return mocker.patch.object(
+        parameter_set, "on_the_active_root_filesystem", return_value=True
+    )
+
+
 @pytest.fixture
 def mounter() -> FakeMounter:
     return FakeMounter()
@@ -142,10 +176,10 @@ def runner() -> FakeRunner:
 def store(
     tmp_path: Path, mounter: FakeMounter, runner: FakeRunner
 ) -> ParameterSetStore:
-    _fstab = tmp_path / "fstab"
-    _fstab.write_text(FSTAB)
     return ParameterSetStore(
-        root=tmp_path / "store", fstab=_fstab, mounter=mounter, runner=runner
+        root=tmp_path / "opt/data/ota/parameter-set",
+        mounter=mounter,
+        runner=runner,
     )
 
 
@@ -195,11 +229,9 @@ def apply_set(store: ParameterSetStore, *slots, **kw) -> AppliedRecord:
     return _record
 
 
-def fstab_block(store: ParameterSetStore) -> list[str]:
-    _lines = store.fstab.read_text().splitlines()
-    if FSTAB_BEGIN not in _lines:
-        return []
-    return _lines[_lines.index(FSTAB_BEGIN) + 1 : _lines.index(FSTAB_END)]
+def reboot(mounter: FakeMounter) -> None:
+    """A reboot: no mount survives it."""
+    mounter.mounted.clear()
 
 
 def history(store: ParameterSetStore) -> list[dict]:
@@ -224,25 +256,19 @@ class TestSwitch:
         assert mounter.shows(
             PARAMS.path, store.applied_dir / TREE_DNAME / PARAMS.relpath
         )
-        _block = fstab_block(store)
-        assert len(_block) == 2
-        # read-only, a slot may hold executables (none of them privileged), a slot
-        #   that cannot be mounted does not stop the boot, and it is mounted before
-        #   what reads it starts
-        assert _block[0].split("\t") == [
-            str(store.applied_dir / TREE_DNAME / PARAMS.relpath),
-            PARAMS.path,
-            "none",
-            "bind,ro,nosuid,nodev,nofail,x-systemd.before=local-fs.target",
-            "0",
-            "0",
-        ]
-        assert store.fstab.read_text().startswith(FSTAB), "the rest of fstab is kept"
         assert runner.ran == [PARAMS.apply, LAUNCH.apply]
         _event = history(store)[-1]
         assert _event["event"] == "applied"
         assert _event["image_id"] == "parameter-image-v1"
         assert _event["base_image_id"] == "base-image"
+
+        # the boot after: the boot-time unit lays applied/ again, and runs nothing
+        reboot(mounter)
+        runner.ran.clear()
+        assert store.mount_at_boot(BASE_ID) is True
+        for _slot in (PARAMS, LAUNCH):
+            assert mounter.shows(_slot.path, store.tree_of(_slot))
+        assert runner.ran == []
 
     def test_only_the_slots_whose_files_change_are_applied(
         self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
@@ -298,8 +324,6 @@ class TestSwitch:
         apply_set(store, PARAMS)
 
         assert set(mounter.mounted) == {PARAMS.path}
-        assert len(fstab_block(store)) == 1
-        assert store.fstab.read_text().count(FSTAB_BEGIN) == 1
         assert runner.ran == [], "a slot taken away runs nothing; PARAMS is the same"
 
     def test_an_empty_set_gives_every_slot_the_base_defaults(
@@ -309,8 +333,6 @@ class TestSwitch:
         _empty = apply_set(store, content="v2")
 
         assert mounter.mounted == {}
-        assert fstab_block(store) == []
-        assert store.fstab.read_text() == FSTAB
         assert runner.ran == [PARAMS.apply], "nothing runs for the slot taken away"
         assert store.applied_record() == _empty, "the release is still recorded"
 
@@ -336,7 +358,6 @@ class TestSwitch:
         )
         assert _f.read_text() == "individual_params: v1\n"
         assert mounter.shows(PARAMS.path, store.tree_of(PARAMS))
-        assert len(fstab_block(store)) == 1
         assert runner.ran[-1] == PARAMS.apply, "the apply runs again for the old set"
         assert events(store)[-1] == "rolled_back"
 
@@ -349,7 +370,6 @@ class TestSwitch:
             store.switch()
         assert _e.value.restored
         assert store.applied_record() is None
-        assert fstab_block(store) == []
         assert mounter.mounted == {}
 
     def test_an_unmount_that_fails_leaves_the_applied_set_where_it_was(
@@ -365,7 +385,6 @@ class TestSwitch:
         assert _e.value.restored
         assert store.applied_record() == _old
         assert PARAMS.path in mounter.mounted
-        assert len(fstab_block(store)) == 1
 
     def test_a_first_set_whose_apply_fails_runs_nothing_after(
         self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
@@ -379,7 +398,6 @@ class TestSwitch:
         assert _e.value.restored
         assert runner.ran == [PARAMS.apply]
         assert mounter.mounted == {}
-        assert fstab_block(store) == []
         assert store.applied_record() is None
 
     def test_a_failed_first_set_is_set_aside_even_if_it_stays_mounted(
@@ -394,9 +412,11 @@ class TestSwitch:
             store.switch()
         assert not _e.value.restored
         assert PARAMS.path in mounter.mounted
-        assert fstab_block(store) == []
         assert store.applied_record() is None
         assert runner.ran == [PARAMS.apply], "nothing runs for the slot taken away"
+        reboot(mounter)
+        assert store.mount_at_boot(BASE_ID) is True
+        assert mounter.mounted == {}, "nothing mounts it at boot"
 
     def test_a_set_that_cannot_be_put_back_says_so(
         self, store: ParameterSetStore, runner: FakeRunner
@@ -430,11 +450,23 @@ class TestSwitch:
         stage(store, REBOOT)
         assert store.switch() is True
 
-    def test_paths_with_spaces_are_escaped_in_fstab(self, store: ParameterSetStore):
-        _spaced = ParameterSlot(name="s", path="/opt/a b", apply="reboot")
-        stage(store, _spaced)
-        store.switch()
-        assert "/opt/a\\040b" in fstab_block(store)[0]
+    def test_the_store_and_its_parents_are_made_with_their_modes(
+        self, store: ParameterSetStore
+    ):
+        """/opt/data and /opt/data/ota are made 0755 when missing, the store 0700,
+        whatever the umask; what is there keeps its mode."""
+        _opt = store.root.parents[2]
+        _opt.mkdir(parents=True)
+        _opt.chmod(0o750)
+        _umask = os.umask(0o077)
+        try:
+            stage(store, PARAMS)
+        finally:
+            os.umask(_umask)
+        assert stat.S_IMODE(store.root.stat().st_mode) == 0o700
+        for _made in (store.root.parent, store.root.parent.parent):
+            assert stat.S_IMODE(_made.stat().st_mode) == 0o755, _made
+        assert stat.S_IMODE(_opt.stat().st_mode) == 0o750
 
     def test_the_set_put_back_runs_its_own_apply(
         self, store: ParameterSetStore, runner: FakeRunner
@@ -548,11 +580,17 @@ class TestAtStartup:
     ):
         _record = apply_set(store, PARAMS)
         _records = self.records_of(_record)
-        assert store.check_at_startup(BASE_ID, slot_records=_records) == _record
-        assert store.check_at_startup(BASE_ID, slot_records=_records) == _record
+        assert (
+            store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
+            == _record
+        )
+        assert (
+            store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
+            == _record
+        )
         assert events(store).count("running") == 1, "a restart adds no line"
         boot("boot-2")
-        store.check_at_startup(BASE_ID, slot_records=_records)
+        store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
         assert events(store).count("running") == 2
 
     def test_a_changed_file_is_kept_as_it_is_and_recorded(
@@ -576,20 +614,23 @@ class TestAtStartup:
         _f.write_text("tampered\n")
         _records = self.records_of(_record)
 
-        assert store.check_at_startup(BASE_ID, slot_records=_records) == _record
+        assert (
+            store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
+            == _record
+        )
         assert _records.version == _record.firmware_version
         assert _records.detail and _records.detail.image_id == _record.image_id
-        assert PARAMS.path in mounter.mounted and len(fstab_block(store)) == 1
+        assert PARAMS.path in mounter.mounted
         assert _f.read_text() == "tampered\n", "not put back either"
         assert runner.ran == []
         _events = history(store)
         assert [_e["event"] for _e in _events[-2:]] == ["running", "tree_mismatch"]
         assert "differs" in _events[-1]["reason"]
 
-        store.check_at_startup(BASE_ID, slot_records=_records)
+        store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
         assert events(store).count("tree_mismatch") == 1, "a restart adds no line"
         boot("boot-2")
-        store.check_at_startup(BASE_ID, slot_records=_records)
+        store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
         assert events(store)[-2:] == ["running", "tree_mismatch"]
         assert events(store).count("tree_mismatch") == 2
 
@@ -601,7 +642,9 @@ class TestAtStartup:
         mounter.mounted.clear()
         runner.ran.clear()
         assert (
-            store.check_at_startup(BASE_ID, slot_records=self.records_of(_record))
+            store.check_at_startup(
+                BASE_ID, base_committed=True, slot_records=self.records_of(_record)
+            )
             == _record
         )
         assert PARAMS.path in mounter.mounted
@@ -660,7 +703,10 @@ class TestAtStartup:
         del mounter.mounted[PARAMS.path]
         mounter.fail_mount = True
         _records = FakeSlotRecords("9.9.9", VersionDetail(image_id="another"))
-        assert store.check_at_startup(BASE_ID, slot_records=_records) is None
+        assert (
+            store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
+            is None
+        )
         assert _records.version == "9.9.9"
 
     @pytest.mark.parametrize(
@@ -679,14 +725,21 @@ class TestAtStartup:
         running: str,
         applied_on: str,
     ):
-        """A set copied in with the slot: the slot's records are the new image's."""
+        """A set copied in with the slot: the slot's records are the new image's. It
+        was never laid on this base: what is mounted at its slots' paths is this
+        base's own, and stays."""
         _record = apply_set(store, PARAMS, base_image_id=applied_on)
+        reboot(mounter)
+        mounter.mounted[PARAMS.path] = (Path("/the/base/own"), 0)
         runner.ran.clear()
         _records = self.records_of(_record)
-        assert store.check_at_startup(running, slot_records=_records) is None
+        assert (
+            store.check_at_startup(running, base_committed=True, slot_records=_records)
+            is None
+        )
         assert _records.version == _record.firmware_version
-        assert store.applied_record() is None and fstab_block(store) == []
-        assert mounter.mounted == {}
+        assert store.applied_record() is None
+        assert mounter.mounted == {PARAMS.path: (Path("/the/base/own"), 0)}
         assert runner.ran == []
         assert "was applied on image" in history(store)[-1]["reason"]
 
@@ -695,22 +748,31 @@ class TestAtStartup:
     ):
         _record = apply_set(store, PARAMS, base_image_id="")
         assert (
-            store.check_at_startup("", slot_records=self.records_of(_record)) == _record
+            store.check_at_startup(
+                "", base_committed=True, slot_records=self.records_of(_record)
+            )
+            == _record
         )
         assert "tree_mismatch" not in events(store)
 
     def test_an_unreadable_record_drops_the_set(
-        self, store: ParameterSetStore, mounter: FakeMounter
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
     ):
-        """What it mounted is told by otaclient's block of fstab."""
-        _spaced = ParameterSlot(name="s", path="/opt/a b", apply="reboot")
-        apply_set(store, PARAMS, _spaced)
-        assert set(mounter.mounted) == {PARAMS.path, "/opt/a b"}
+        """What it fills cannot be told: the boot mounts none of it, and otaclient's
+        start drops it."""
+        apply_set(store, PARAMS, LAUNCH)
         (store.applied_dir / "record.json").write_text("")
+        reboot(mounter)
+        runner.ran.clear()
+        assert store.mount_at_boot(BASE_ID) is False
+        assert mounter.mounted == {}
         _records = FakeSlotRecords("x", None)
-        assert store.check_at_startup(BASE_ID, slot_records=_records) is None
+        assert (
+            store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
+            is None
+        )
         assert not store.applied_dir.exists()
-        assert mounter.mounted == {} and fstab_block(store) == []
+        assert mounter.mounted == {} and runner.ran == []
         assert "unreadable" in history(store)[-1]["reason"]
 
     def test_an_unfinished_switch_is_rolled_back(
@@ -722,7 +784,10 @@ class TestAtStartup:
         store.switch()
 
         assert (
-            store.check_at_startup(BASE_ID, slot_records=self.records_of(_old)) == _old
+            store.check_at_startup(
+                BASE_ID, base_committed=True, slot_records=self.records_of(_old)
+            )
+            == _old
         )
         assert not store.previous_dir.exists()
         assert events(store)[-3:] == ["rolled_back", "recovered", "running"]
@@ -736,26 +801,37 @@ class TestAtStartup:
         mounter.fail_mount = True
         runner.ran.clear()
         _records = self.records_of(_record)
-        store.check_at_startup(BASE_ID, slot_records=_records)
+        store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
         assert events(store)[-1] == "dropped"
         assert runner.ran == []
-        assert store.applied_record() is None and fstab_block(store) == []
+        assert store.applied_record() is None
         assert _records.version == "1.0.0", "the base's records come back first"
 
     def test_a_slot_that_did_not_mount_at_boot_is_mounted_and_applied(
-        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        caplog: pytest.LogCaptureFixture,
     ):
+        """The boot-time unit is not installed, or did not mount it: otaclient's
+        start does, and says so."""
         _record = apply_set(store, PARAMS, REBOOT)
-        mounter.mounted.clear()
+        reboot(mounter)
         runner.ran.clear()
 
-        assert (
-            store.check_at_startup(BASE_ID, slot_records=self.records_of(_record))
-            == _record
-        )
+        with caplog.at_level(logging.WARNING, logger=parameter_set.__name__):
+            assert (
+                store.check_at_startup(
+                    BASE_ID, base_committed=True, slot_records=self.records_of(_record)
+                )
+                == _record
+            )
         assert PARAMS.path in mounter.mounted
         assert runner.ran == [PARAMS.apply]
         assert events(store)[-3:] == ["remounted", "reboot_required", "running"]
+        assert "the boot-time unit" in caplog.text
+        assert "did not mount them" in caplog.text
 
     def test_a_slot_that_cannot_be_mounted_drops_the_set(
         self, store: ParameterSetStore, mounter: FakeMounter
@@ -764,15 +840,20 @@ class TestAtStartup:
         del mounter.mounted[LAUNCH.path]
         mounter.fail_mount = True
         _records = self.records_of(_record)
-        assert store.check_at_startup(BASE_ID, slot_records=_records) is None
+        assert (
+            store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
+            is None
+        )
         assert mounter.mounted == {}, "the slot that was mounted is unmounted too"
-        assert store.applied_record() is None and fstab_block(store) == []
+        assert store.applied_record() is None
         assert _records.version == "1.0.0", "the slot reports the base again"
         assert events(store)[-1] == "dropped"
 
     def test_nothing_applied_is_nothing_to_check(self, store: ParameterSetStore):
         assert (
-            store.check_at_startup(BASE_ID, slot_records=FakeSlotRecords("", None))
+            store.check_at_startup(
+                BASE_ID, base_committed=True, slot_records=FakeSlotRecords("", None)
+            )
             is None
         )
         assert not store.history_file.exists()
@@ -789,7 +870,10 @@ class TestAtStartup:
         assert store.previous_dir.exists()
 
         _records = self.records_of(_new)
-        assert store.check_at_startup(BASE_ID, slot_records=_records) == _new
+        assert (
+            store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
+            == _new
+        )
         assert not store.previous_dir.exists() and not store.discard_dir.exists()
         assert mounter.shows(PARAMS.path, store.tree_of(PARAMS))
         assert runner.ran == [], "the switch ran the apply"
@@ -810,7 +894,10 @@ class TestAtStartup:
         (store.previous_dir / "record.json").unlink()
 
         assert (
-            store.check_at_startup(BASE_ID, slot_records=self.records_of(_new)) == _new
+            store.check_at_startup(
+                BASE_ID, base_committed=True, slot_records=self.records_of(_new)
+            )
+            == _new
         )
         assert not store.previous_dir.exists()
         assert mounter.shows(PARAMS.path, store.tree_of(PARAMS))
@@ -819,7 +906,9 @@ class TestAtStartup:
         _record = apply_set(store, PARAMS)
         (store.discard_dir / "tree").mkdir(parents=True)
         assert (
-            store.check_at_startup(BASE_ID, slot_records=self.records_of(_record))
+            store.check_at_startup(
+                BASE_ID, base_committed=True, slot_records=self.records_of(_record)
+            )
             == _record
         )
         assert not store.discard_dir.exists()
@@ -834,19 +923,33 @@ class TestAtStartup:
         runner.ran.clear()
 
         assert (
-            store.check_at_startup(BASE_ID, slot_records=self.records_of(_old)) == _old
+            store.check_at_startup(
+                BASE_ID, base_committed=True, slot_records=self.records_of(_old)
+            )
+            == _old
         )
         assert mounter.shows(PARAMS.path, store.tree_of(PARAMS))
         assert runner.ran == [PARAMS.apply]
 
-    def test_a_drop_whose_mount_cannot_go_leaves_no_fstab_entry(
+    def test_a_drop_whose_mount_cannot_go_leaves_nothing_to_mount_at_boot(
         self, store: ParameterSetStore, mounter: FakeMounter
     ):
-        _record = apply_set(store, PARAMS)
+        """A slot cannot be mounted: the set is dropped, and the mount of the slot
+        that was cannot be taken away. The set left applied/ first: the next boot
+        lays nothing."""
+        _record = apply_set(store, PARAMS, LAUNCH)
+        del mounter.mounted[LAUNCH.path]
+        mounter.fail_mount = True
         mounter.fail_umount = True
-        store.check_at_startup("another-image", slot_records=self.records_of(_record))
+        store.check_at_startup(
+            BASE_ID, base_committed=True, slot_records=self.records_of(_record)
+        )
         assert "drop_failed" in events(store)
-        assert fstab_block(store) == []
+        assert store.applied_record() is None
+        reboot(mounter)
+        mounter.fail_mount = mounter.fail_umount = False
+        assert store.mount_at_boot(BASE_ID) is True
+        assert mounter.mounted == {}
 
     def test_a_roll_back_whose_unmount_fails_puts_the_set_before_in_place(
         self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
@@ -867,17 +970,20 @@ class TestAtStartup:
         store._runner = runner
         assert not _e.value.restored
         assert store.applied_record() == _old
-        assert len(fstab_block(store)) == 2
         assert not store.previous_dir.exists()
 
-        # the boot after: the fstab block lays the set put back
+        # the boot after: the boot-time unit lays the set put back
         mounter.fail_umount = False
-        mounter.mounted.clear()
+        reboot(mounter)
+        assert store.mount_at_boot(BASE_ID) is True
         for _slot in (PARAMS, LAUNCH):
-            mounter.bind_ro(store.tree_of(_slot), _slot.path)
+            assert mounter.shows(_slot.path, store.tree_of(_slot))
         runner.ran.clear()
         assert (
-            store.check_at_startup(BASE_ID, slot_records=self.records_of(_old)) == _old
+            store.check_at_startup(
+                BASE_ID, base_committed=True, slot_records=self.records_of(_old)
+            )
+            == _old
         )
         assert not store.discard_dir.exists()
         assert runner.ran == []
@@ -885,9 +991,14 @@ class TestAtStartup:
     def test_a_dropped_set_whose_unmount_fails_is_not_laid_again(
         self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
     ):
-        _record = apply_set(store, PARAMS)
+        _record = apply_set(store, PARAMS, LAUNCH)
+        del mounter.mounted[LAUNCH.path]
+        mounter.fail_mount = True
         mounter.fail_umount = True
-        store.check_at_startup("another-image", slot_records=self.records_of(_record))
+        store.check_at_startup(
+            BASE_ID, base_committed=True, slot_records=self.records_of(_record)
+        )
+        mounter.fail_mount = False
         assert "drop_failed" in events(store)
         assert store.applied_record() is None
         # the next start: nothing to lay
@@ -895,35 +1006,81 @@ class TestAtStartup:
         mounter.mounted.clear()
         runner.ran.clear()
         assert (
-            store.check_at_startup(BASE_ID, slot_records=self.records_of(_record))
+            store.check_at_startup(
+                BASE_ID, base_committed=True, slot_records=self.records_of(_record)
+            )
             is None
         )
         assert runner.ran == [] and mounter.mounted == {}
 
-    def test_an_fstab_block_that_is_not_the_sets_is_written_again(
-        self, store: ParameterSetStore, mounter: FakeMounter
+    def test_a_switch_recorded_but_not_committed_is_applied_after_a_reboot(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
     ):
-        _record = apply_set(store, PARAMS)
-        store.fstab.write_text(FSTAB)
-        assert (
-            store.check_at_startup(BASE_ID, slot_records=self.records_of(_record))
-            == _record
-        )
-        assert len(fstab_block(store)) == 1
-        assert "fstab_restored" in events(store)
+        """Power lost after the slot recorded the new release: the boot mounts
+        nothing while previous/ is there, so what reads the slots started with the
+        base's; the switch is completed and every slot of it applied again."""
+        apply_set(store, PARAMS, REBOOT)
+        _new = stage(store, PARAMS, REBOOT, content="v2")
+        store.switch()
+        reboot(mounter)
+        runner.ran.clear()
+        assert store.mount_at_boot(BASE_ID) is True
+        assert mounter.mounted == {}
 
-    def test_an_fstab_block_with_no_set_applied_is_cleared(
+        assert (
+            store.check_at_startup(
+                BASE_ID, base_committed=True, slot_records=self.records_of(_new)
+            )
+            == _new
+        )
+        assert not store.previous_dir.exists()
+        for _slot in (PARAMS, REBOOT):
+            assert mounter.shows(_slot.path, store.tree_of(_slot))
+        assert runner.ran == [PARAMS.apply]
+        assert events(store)[-3:] == ["reboot_required", "recovered", "running"]
+
+    def test_an_unfinished_switch_rolled_back_after_a_reboot_applies_every_slot(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ):
+        """The set put back fills LAUNCH with the files the failed set had there:
+        by the file lists nothing changes back, but the boot mounted nothing, so it
+        is applied too."""
+        _old = apply_set(store, PARAMS, LAUNCH)
+        stage(
+            store,
+            PARAMS,
+            LAUNCH,
+            content="v2",
+            contents={PARAMS.name: "v2", LAUNCH.name: "v1"},
+        )
+        store.switch()
+        reboot(mounter)
+        runner.ran.clear()
+        assert store.mount_at_boot(BASE_ID) is True
+
+        assert (
+            store.check_at_startup(
+                BASE_ID, base_committed=True, slot_records=self.records_of(_old)
+            )
+            == _old
+        )
+        for _slot in (PARAMS, LAUNCH):
+            assert mounter.shows(_slot.path, store.tree_of(_slot))
+        assert sorted(runner.ran) == sorted([PARAMS.apply, LAUNCH.apply])
+
+    def test_no_set_applied_leaves_the_mounts_alone(
         self, store: ParameterSetStore, mounter: FakeMounter
     ):
-        _record = apply_set(store, PARAMS)
-        shutil.rmtree(store.applied_dir)
+        """Nothing otaclient keeps names a mount: with no set applied, nothing is
+        unmounted."""
+        mounter.mounted["/opt/elsewhere"] = (Path("/x"), 0)
         assert (
-            store.check_at_startup(BASE_ID, slot_records=self.records_of(_record))
+            store.check_at_startup(
+                BASE_ID, base_committed=True, slot_records=FakeSlotRecords("", None)
+            )
             is None
         )
-        assert fstab_block(store) == []
-        assert mounter.mounted == {}
-        assert "fstab_cleared" in events(store)
+        assert set(mounter.mounted) == {"/opt/elsewhere"}
 
     def test_a_roll_back_that_fails_is_not_recorded_as_recovered(
         self, store: ParameterSetStore, mounter: FakeMounter
@@ -932,7 +1089,9 @@ class TestAtStartup:
         stage(store, PARAMS, content="v2")
         store.switch()
         mounter.fail_umount = True
-        store.check_at_startup(BASE_ID, slot_records=self.records_of(_old))
+        store.check_at_startup(
+            BASE_ID, base_committed=True, slot_records=self.records_of(_old)
+        )
         assert "roll_back_failed" in events(store)
         assert "recovered" not in events(store)
 
@@ -945,7 +1104,10 @@ class TestAtStartup:
         mounter.mounted.clear()
         runner.fail_times = 1
         _records = self.records_of(_record)
-        assert store.check_at_startup(BASE_ID, slot_records=_records) == _record
+        assert (
+            store.check_at_startup(BASE_ID, base_committed=True, slot_records=_records)
+            == _record
+        )
         assert PARAMS.path in mounter.mounted
         assert "apply_failed" in events(store)
         assert _records.version == _record.firmware_version
@@ -954,7 +1116,9 @@ class TestAtStartup:
         self, store: ParameterSetStore
     ):
         _record = apply_set(store, PARAMS)
-        store.check_at_startup("another-image", slot_records=self.records_of(_record))
+        store.check_at_startup(
+            "another-image", base_committed=True, slot_records=self.records_of(_record)
+        )
         _dropped = history(store)[-1]
         assert _dropped["event"] == "dropped"
         assert _dropped["set_manifest_digest"] == _record.set_manifest_digest
@@ -971,24 +1135,112 @@ class TestAtStartup:
 
 class TestHistory:
     def test_a_full_ota_carries_the_history_and_says_the_set_stays_behind(
+        self, store: ParameterSetStore, tmp_path: Path, on_the_slots_own_root
+    ):
+        """The store is the slot's own: the new slot gets the history only."""
+        _record = apply_set(store, PARAMS)
+        _standby = tmp_path / "standby"
+        (_standby / "opt").mkdir(mode=0o755, parents=True)
+
+        store.carry_history_to(_standby, to_version="2.0.0")
+
+        on_the_slots_own_root.assert_called_once_with(store.root)
+        _store = _standby / "opt/data/ota/parameter-set"
+        _events = [
+            json.loads(_l) for _l in (_store / "history.jsonl").read_text().splitlines()
+        ]
+        assert [_e["event"] for _e in _events] == ["applied", "left_behind"]
+        assert _events[-1]["set"] == _record.set_manifest_digest
+        assert _events[-1]["reason"] == "full OTA to 2.0.0"
+        assert _events[-1]["shared"] is False
+        assert not (_store / "applied").exists()
+        assert stat.S_IMODE(_store.stat().st_mode) == 0o700
+        for _made in (_standby / "opt/data", _standby / "opt/data/ota"):
+            assert stat.S_IMODE(_made.stat().st_mode) == 0o755
+        assert events(store)[-1] == "applied", "the running slot's is not touched"
+        assert not (store.root / "base-change-staged.json").exists()
+
+    def test_a_link_on_the_way_in_the_new_slot_is_not_followed(
         self, store: ParameterSetStore, tmp_path: Path
     ):
+        """The new image has /opt/data as a link: the history is not copied through
+        it, wherever it points."""
+        apply_set(store, PARAMS)
+        _standby = tmp_path / "standby"
+        (_standby / "opt").mkdir(mode=0o755, parents=True)
+        (tmp_path / "elsewhere").mkdir(mode=0o755)
+        (_standby / "opt/data").symlink_to(tmp_path / "elsewhere")
+
+        store.carry_history_to(_standby, to_version="2.0.0")
+
+        assert list((tmp_path / "elsewhere").iterdir()) == []
+
+    def test_a_shared_store_stays_where_it_is_and_says_so(
+        self, store: ParameterSetStore, tmp_path: Path, on_the_slots_own_root
+    ):
+        """On a partition both slots mount: nothing is copied, the line goes where
+        the store is, and the new slot's otaclient drops the set by its base."""
+        on_the_slots_own_root.return_value = False
         _record = apply_set(store, PARAMS)
         _standby = tmp_path / "standby"
 
-        store.carry_history_to(_standby, reason="full OTA to 2.0.0")
+        store.carry_history_to(_standby, to_version="2.0.0")
 
-        _carried = _standby / "opt/ota/parameter-set/history.jsonl"
-        _events = [json.loads(_l) for _l in _carried.read_text().splitlines()]
-        assert [_e["event"] for _e in _events] == ["applied", "left_behind"]
-        assert _events[-1]["set"] == _record.set_manifest_digest
-        assert not (_standby / "opt/ota/parameter-set/applied").exists()
+        assert not _standby.exists()
+        # the new slot may run the same image: the mark says a full update was staged
+        _staged = json.loads((store.root / "base-change-staged.json").read_text())
+        assert _staged["to_version"] == "2.0.0"
+        _left = history(store)[-1]
+        assert _left["event"] == "left_behind"
+        assert _left["shared"] is True
+        assert _left["set"] == _record.set_manifest_digest
+        assert store.applied_record() == _record, "dropped by the new slot, not here"
+        assert (
+            store.check_at_startup(
+                "new-image",
+                base_committed=True,
+                slot_records=FakeSlotRecords("2.0.0", None),
+            )
+            is None
+        )
+        assert events(store)[-1] == "dropped"
+        assert not (store.root / "base-change-staged.json").exists()
+
+    def test_a_new_slot_written_as_an_image_keeps_the_set_where_it_is(
+        self, store: ParameterSetStore
+    ):
+        """A partition-based layout: no root to copy into, the store stays."""
+        apply_set(store, PARAMS)
+        store.carry_history_to(None, to_version="3.0.0")
+        assert history(store)[-1]["shared"] is True
+        assert (store.root / "base-change-staged.json").exists()
 
     def test_a_slot_that_never_had_a_set_carries_nothing(
-        self, store: ParameterSetStore, tmp_path: Path
+        self, store: ParameterSetStore, tmp_path: Path, on_the_slots_own_root
     ):
-        store.carry_history_to(tmp_path / "standby", reason="full OTA")
+        store.carry_history_to(tmp_path / "standby", to_version="2.0.0")
         assert not (tmp_path / "standby").exists()
+        assert not store.root.exists()
+
+    def test_the_root_filesystem_is_the_hosts(
+        self, tmp_path: Path, mocker: MockerFixture
+    ):
+        """From the nearest of the store and its parents that exists, against the
+        running slot's root: the host's from an app image."""
+        _host = tmp_path / "host_root"
+        _host.mkdir(mode=0o755)
+        _chroot = mocker.patch.object(
+            parameter_set._env, "get_dynamic_client_chroot_path", return_value=None
+        )
+        _missing = tmp_path / "opt/data/ota/parameter-set"
+        assert on_the_active_root_filesystem(_missing) is (
+            os.stat(tmp_path).st_dev == os.stat("/").st_dev
+        )
+        _chroot.return_value = str(_host)
+        assert on_the_active_root_filesystem(_missing) is True
+        # another filesystem than the host's root
+        _chroot.return_value = "/proc"
+        assert on_the_active_root_filesystem(_missing) is False
 
     def test_the_history_rotates(self, store: ParameterSetStore):
         store.record_event("filler", blob="x" * (HISTORY_MAX_SIZE + 1))
@@ -997,23 +1249,67 @@ class TestHistory:
         assert (store.root / "history.jsonl.1").exists()
 
 
+_STAGE = parameter_set.STAGE_DPATH
+_STAGED = f"{_STAGE}/slot"
+
+
+def staged_bind(tree: str, mount_point: str) -> list[list[str]]:
+    """The commands of a bind of `tree` at `mount_point` when no staging mount is
+    left over (its findmnt finds nothing)."""
+    return [
+        ["findmnt", "--noheadings", "--mountpoint", _STAGE],
+        ["mkdir", "-p", _STAGE],
+        ["mount", "-t", "tmpfs", "-o", "mode=0700,size=64k"]
+        + ["otaclient-parameter-set", _STAGE],
+        ["mount", "--make-private", _STAGE],
+        ["mkdir", _STAGED],
+        ["mount", "--bind", tree, _STAGED],
+        ["mount", "-o", "remount,bind,ro,nosuid,nodev", _STAGED],
+        ["mount", "--move", _STAGED, mount_point],
+        ["umount", "--lazy", _STAGE],
+    ]
+
+
+def _findmnt_finds_nothing(cmd, **kwargs):
+    if cmd[0] == "findmnt":
+        raise subprocess.CalledProcessError(1, cmd)
+
+
 class TestHostCommands:
     """What runs on the device, as the commands it is."""
 
+    def test_shows_tells_a_bind_of_the_directory(self, tmp_path: Path):
+        """A bind shows the directory it was made from: the same inode on the same
+        device; anything else, or a path that cannot be looked at, is not it."""
+        (tmp_path / "opt/x").mkdir(mode=0o755, parents=True)
+        (tmp_path / "opt/y").mkdir(mode=0o755)
+        _mounter = parameter_set.HostParameterSlotMounter(host_root=str(tmp_path))
+        assert _mounter.shows("/opt/x", tmp_path / "opt/x")
+        assert not _mounter.shows("/opt/x", tmp_path / "opt/y")
+        assert not _mounter.shows("/opt/missing", tmp_path / "opt/x")
+        assert not _mounter.shows("/opt/x", tmp_path / "opt/missing")
+
     def test_mounts_go_to_the_hosts_namespace(self, mocker: MockerFixture):
-        _run = mocker.patch.object(parameter_set, "subprocess_run_wrapper")
+        _run = mocker.patch.object(
+            parameter_set, "subprocess_run_wrapper", side_effect=_findmnt_finds_nothing
+        )
         mocker.patch.object(
             parameter_set._env, "is_dynamic_client_running", return_value=True
         )
         _mounter = HostParameterSlotMounter()
-        _mounter.bind_ro(Path("/opt/ota/parameter-set/applied/tree/opt/p"), "/opt/p")
+        _tree = "/opt/data/ota/parameter-set/applied/tree/opt/p"
+        _mounter.bind_ro(Path(_tree), "/opt/p")
         _mounter.umount("/opt/p")
         assert [_c.args[0] for _c in _run.call_args_list] == [
-            ["mount", "--bind", "/opt/ota/parameter-set/applied/tree/opt/p", "/opt/p"],
-            ["mount", "-o", "remount,bind,ro,nosuid,nodev", "/opt/p"],
+            *staged_bind(_tree, "/opt/p"),
             ["umount", "--lazy", "/opt/p"],
         ]
         assert all(_c.kwargs["set_host_mnt_ns"] for _c in _run.call_args_list)
+        # bounded: the boot waits for them
+        assert all(
+            _c.kwargs["timeout"] == parameter_set.MOUNT_COMMAND_TIMEOUT
+            for _c in _run.call_args_list
+        )
 
     def test_a_slot_behind_a_link_is_not_mounted_over(
         self, tmp_path: Path, mocker: MockerFixture
@@ -1022,7 +1318,11 @@ class TestHostCommands:
         (tmp_path / "real").mkdir()
         (tmp_path / "link").symlink_to(tmp_path / "real")
         with pytest.raises(OSError, match="symbolic link"):
-            HostParameterSlotMounter().bind_ro(tmp_path / "src", str(tmp_path / "link"))
+            # the host's root given: what the environment says otherwise does not
+            #   matter here (alone, this test got a dynamic client's /host_root)
+            HostParameterSlotMounter("/").bind_ro(
+                tmp_path / "src", str(tmp_path / "link")
+            )
         _run.assert_not_called()
 
     def test_a_mount_point_the_host_lacks_is_made(self, tmp_path: Path):
@@ -1124,22 +1424,74 @@ class TestHostCommands:
         # the same path, a real directory on the host, is mounted
         (_host / "opt" / "p").unlink()
         (_host / "opt" / "p").mkdir()
+        _run.side_effect = _findmnt_finds_nothing
         HostParameterSlotMounter(str(_host)).bind_ro(tmp_path / "src", "/opt/p")
-        assert _run.call_count == 2
+        assert [_c.args[0] for _c in _run.call_args_list] == staged_bind(
+            str(tmp_path / "src"), "/opt/p"
+        )
 
+    @pytest.mark.parametrize(
+        "failing",
+        (
+            pytest.param(["mount", "--make-private"], id="make_private"),
+            pytest.param(["mount", "--bind"], id="bind"),
+            pytest.param(["mount", "-o"], id="remount"),
+            pytest.param(["mount", "--move"], id="move"),
+        ),
+    )
     def test_a_bind_that_cannot_be_made_read_only_is_undone(
-        self, mocker: MockerFixture
+        self, mocker: MockerFixture, failing: list[str]
     ):
+        """A failed step leaves nothing at the slot's path, and the staging mount
+        goes, with the bind in it."""
+
         def _run(cmd, **kwargs):
-            if cmd[:2] == ["mount", "-o"]:
-                raise subprocess.CalledProcessError(32, cmd, stderr=b"remount failed")
+            _findmnt_finds_nothing(cmd)
+            if cmd[:2] == failing:
+                raise subprocess.CalledProcessError(32, cmd, stderr=b"step failed")
 
         _wrapper = mocker.patch.object(
             parameter_set, "subprocess_run_wrapper", side_effect=_run
         )
-        with pytest.raises(CommandFailed, match="remount failed"):
+        with pytest.raises(CommandFailed, match="step failed"):
             HostParameterSlotMounter("/").bind_ro(Path("/src"), "/opt/p")
-        assert _wrapper.call_args.args[0] == ["umount", "--lazy", "/opt/p"]
+        _ran = [_c.args[0] for _c in _wrapper.call_args_list]
+        assert _ran[-1] == ["umount", "--lazy", _STAGE]
+        # nothing was mounted at the slot's path but by the move, which failed or
+        #   did not run
+        assert not [
+            _c for _c in _ran if "/opt/p" in _c and _c[:2] != ["mount", "--move"]
+        ]
+
+    def test_the_bind_is_read_only_before_it_reaches_the_slots_path(
+        self, mocker: MockerFixture
+    ):
+        """Made in the private staging mount and made read-only there, then moved:
+        the peers of the slot's path get it read-only (a remount at the slot's path
+        would not reach them)."""
+        _run = mocker.patch.object(
+            parameter_set, "subprocess_run_wrapper", side_effect=_findmnt_finds_nothing
+        )
+        HostParameterSlotMounter("/").bind_ro(Path("/src"), "/opt/p")
+        _ran = [_c.args[0] for _c in _run.call_args_list]
+        _private = _ran.index(["mount", "--make-private", _STAGE])
+        _bind = _ran.index(["mount", "--bind", "/src", _STAGED])
+        _ro = _ran.index(["mount", "-o", "remount,bind,ro,nosuid,nodev", _STAGED])
+        _move = _ran.index(["mount", "--move", _STAGED, "/opt/p"])
+        assert _private < _bind < _ro < _move
+        assert [_c for _c in _ran if _c[-1] == "/opt/p"] == [_ran[_move]]
+
+    def test_a_staging_mount_left_over_is_cleared_first(self, mocker: MockerFixture):
+        """An otaclient stopped in the middle of a bind leaves the staging mount: it
+        goes before another is mounted over it."""
+        _run = mocker.patch.object(parameter_set, "subprocess_run_wrapper")
+        HostParameterSlotMounter("/").bind_ro(Path("/src"), "/opt/p")
+        _ran = [_c.args[0] for _c in _run.call_args_list]
+        assert _ran[:3] == [
+            ["findmnt", "--noheadings", "--mountpoint", _STAGE],
+            ["umount", "--lazy", _STAGE],
+            ["mkdir", "-p", _STAGE],
+        ]
 
     def test_a_failed_command_says_why(self, mocker: MockerFixture):
         mocker.patch.object(
@@ -1175,3 +1527,738 @@ class TestHostCommands:
         _raw = json.loads(_record.model_dump_json())
         assert _raw["slots"] == [PARAMS.model_dump()]
         assert AppliedRecord.model_validate_json(_record.model_dump_json()) == _record
+
+
+class TestAtBoot:
+    """`otaclient mount-parameter-set`, before local-fs.target."""
+
+    def test_the_applied_set_is_bound_and_nothing_runs(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ):
+        _record = apply_set(store, PARAMS, LAUNCH)
+        reboot(mounter)
+        runner.ran.clear()
+
+        assert store.mount_at_boot(BASE_ID) is True
+
+        for _slot in (PARAMS, LAUNCH):
+            assert mounter.shows(_slot.path, store.tree_of(_slot))
+        assert runner.ran == [], "what reads the slots has not started yet"
+        _event = history(store)[-1]
+        assert _event["event"] == "mounted_at_boot"
+        assert _event["set_manifest_digest"] == _record.set_manifest_digest
+        assert _event["mounted"] == [PARAMS.name, LAUNCH.name]
+        assert _event["failed"] == {}
+        # otaclient's start finds every slot mounted: no apply, no remount
+        assert (
+            store.check_at_startup(
+                BASE_ID,
+                base_committed=True,
+                slot_records=FakeSlotRecords(
+                    _record.firmware_version,
+                    VersionDetail(image_id=_record.image_id),
+                ),
+            )
+            == _record
+        )
+        assert runner.ran == [] and "remounted" not in events(store)
+
+    def test_one_event_whatever_was_done(
+        self, store: ParameterSetStore, mounter: FakeMounter
+    ):
+        """A mount point made and a slot already mounted are in the one event."""
+        apply_set(store, PARAMS, LAUNCH)
+        reboot(mounter)
+        mounter.missing.add(LAUNCH.path)
+        mounter.bind_ro(store.tree_of(PARAMS), PARAMS.path)
+        _before = len(events(store))
+
+        assert store.mount_at_boot(BASE_ID) is True
+
+        assert events(store)[_before:] == ["mounted_at_boot"]
+        _event = history(store)[-1]
+        assert _event["mounted"] == [LAUNCH.name]
+        assert _event["already_mounted"] == [PARAMS.name]
+        assert _event["mount_points_made"] == [LAUNCH.path]
+
+    def test_a_set_of_another_image_is_not_mounted(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ):
+        """This boot may be the trial of a new base: the store is left as it is,
+        not even a line in the history; otaclient drops the set once the base is
+        committed."""
+        _record = apply_set(store, PARAMS)
+        reboot(mounter)
+        runner.ran.clear()
+        _history = store.history_file.read_text()
+
+        assert store.mount_at_boot("another-image") is True
+
+        assert mounter.mounted == {}
+        assert store.history_file.read_text() == _history
+        assert store.applied_record() == _record, "not dropped here"
+        assert runner.ran == []
+
+    def test_an_unfinished_switch_is_not_mounted(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ):
+        """Whether it completes or rolls back takes the slot's records, which
+        otaclient's start has."""
+        apply_set(store, PARAMS)
+        stage(store, PARAMS, content="v2")
+        store.switch()
+        reboot(mounter)
+        runner.ran.clear()
+
+        assert store.mount_at_boot(BASE_ID) is True
+
+        assert mounter.mounted == {}
+        assert store.previous_dir.exists(), "left to otaclient"
+        assert history(store)[-1]["event"] == "not_mounted_at_boot"
+        assert runner.ran == []
+
+    def test_a_slot_that_cannot_be_mounted_fails_and_the_others_are_mounted(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ):
+        apply_set(store, PARAMS, LAUNCH)
+        reboot(mounter)
+        runner.ran.clear()
+        _bind = mounter.bind_ro
+
+        def _params_fails(source: Path, mount_point: str) -> None:
+            if mount_point == PARAMS.path:
+                raise OSError("no such directory")
+            _bind(source, mount_point)
+
+        mounter.bind_ro = _params_fails  # type: ignore[method-assign]
+
+        assert store.mount_at_boot(BASE_ID) is False
+
+        assert set(mounter.mounted) == {LAUNCH.path}
+        _event = history(store)[-1]
+        assert _event["mounted"] == [LAUNCH.name]
+        assert "no such directory" in _event["failed"][PARAMS.name]
+        assert runner.ran == []
+
+    def test_nothing_applied_is_nothing_to_do_and_nothing_recorded(
+        self, store: ParameterSetStore, mounter: FakeMounter
+    ):
+        assert store.mount_at_boot(BASE_ID) is True
+        assert mounter.mounted == {}
+        assert not store.root.exists(), "the boot makes no store"
+
+    def test_an_unreadable_record_mounts_nothing_and_fails(
+        self, store: ParameterSetStore, mounter: FakeMounter
+    ):
+        """Whose set it is cannot be told: logged, the store left as it is."""
+        apply_set(store, PARAMS)
+        reboot(mounter)
+        (store.applied_dir / "record.json").write_text("{")
+        _history = store.history_file.read_text()
+        assert store.mount_at_boot(BASE_ID) is False
+        assert mounter.mounted == {}
+        assert store.history_file.read_text() == _history
+
+
+class TestTheCommand:
+    """`otaclient mount-parameter-set`, as the app image's boot-time unit runs it."""
+
+    @pytest.fixture(autouse=True)
+    def no_logging_setup(self, mocker: MockerFixture):
+        mocker.patch.object(parameter_set.logging, "basicConfig")
+
+    @pytest.fixture
+    def app_image(self, tmp_path: Path, mocker: MockerFixture) -> Path:
+        """An app image: the host's root at its chroot path, mounts through the
+        host's mount namespace. The store is the host's, at the path the unit binds
+        /opt to: here, the host's own path in the test's tree."""
+        _host = tmp_path / "host_root"
+        (_host / "usr/share/ota").mkdir(mode=0o755, parents=True)
+        (_host / "usr/share/ota/version.json").write_text(
+            json.dumps({"schema_version": 1, "image_id": BASE_ID})
+        )
+        mocker.patch.object(
+            parameter_set._env, "is_dynamic_client_running", return_value=True
+        )
+        mocker.patch.object(
+            parameter_set._env,
+            "get_dynamic_client_chroot_path",
+            return_value=str(_host),
+        )
+        mocker.patch.object(
+            parameter_set.cfg,
+            "PARAMETER_SET_DPATH",
+            str(_host / "opt/data/ota/parameter-set"),
+        )
+        return _host
+
+    @staticmethod
+    def applied_on_the_host(host: Path) -> ParameterSetStore:
+        _store = ParameterSetStore(
+            root=host / "opt/data/ota/parameter-set",
+            mounter=FakeMounter(),
+            runner=FakeRunner(),
+        )
+        apply_set(_store, PARAMS)
+        return _store
+
+    def test_the_set_is_mounted_in_the_hosts_namespace(
+        self, tmp_path: Path, app_image: Path, mocker: MockerFixture
+    ):
+        """What it reads is the host's (the version file, the slot's path), what it
+        runs goes to the host's mount namespace, bounded, and no apply runs."""
+        _store = self.applied_on_the_host(app_image)
+        _ran: list[list[str]] = []
+
+        def _run(cmd, **kwargs):
+            assert kwargs["set_host_mnt_ns"] is True
+            assert kwargs["timeout"] == parameter_set.MOUNT_COMMAND_TIMEOUT
+            assert "chroot" not in kwargs
+            _ran.append(cmd)
+            if cmd[0] == "findmnt":
+                raise subprocess.CalledProcessError(1, cmd)
+
+        mocker.patch.object(parameter_set, "subprocess_run_wrapper", side_effect=_run)
+
+        assert parameter_set.mount_parameter_set_command() == 0
+
+        _tree = str(_store.tree_of(PARAMS))
+        assert _ran == [
+            ["findmnt", "--noheadings", "--mountpoint", PARAMS.path],
+            *staged_bind(_tree, PARAMS.path),
+        ]
+        # the mount point was made on the host
+        assert (app_image / PARAMS.relpath).is_dir()
+
+    def test_a_store_others_can_change_lays_nothing_and_fails(
+        self, app_image: Path, mocker: MockerFixture
+    ):
+        _store = self.applied_on_the_host(app_image)
+        _store.root.parent.chmod(0o777)
+        _run = mocker.patch.object(parameter_set, "subprocess_run_wrapper")
+        assert parameter_set.mount_parameter_set_command() == 1
+        _run.assert_not_called()
+
+    def test_a_set_of_another_image_mounts_nothing(
+        self, app_image: Path, mocker: MockerFixture
+    ):
+        (app_image / "usr/share/ota/version.json").write_text(
+            json.dumps({"schema_version": 1, "image_id": "another-image"})
+        )
+        self.applied_on_the_host(app_image)
+        _run = mocker.patch.object(parameter_set, "subprocess_run_wrapper")
+        assert parameter_set.mount_parameter_set_command() == 0
+        _run.assert_not_called()
+
+    @pytest.mark.parametrize("mounted, code", ((True, 0), (False, 1)))
+    def test_the_exit_code_says_whether_every_slot_is_mounted(
+        self, app_image: Path, mocker: MockerFixture, mounted: bool, code: int
+    ):
+        _store = mocker.MagicMock()
+        _store.mount_at_boot.return_value = mounted
+        mocker.patch.object(parameter_set, "ParameterSetStore", return_value=_store)
+        assert parameter_set.mount_parameter_set_command() == code
+        _store.mount_at_boot.assert_called_once_with(BASE_ID)
+
+    def test_an_error_is_exit_1_not_a_hang_or_a_raise(
+        self, app_image: Path, mocker: MockerFixture
+    ):
+        mocker.patch.object(
+            parameter_set, "ParameterSetStore", side_effect=OSError("I/O error")
+        )
+        assert parameter_set.mount_parameter_set_command() == 1
+
+    @pytest.mark.parametrize("code", (0, 1))
+    def test_the_subcommand_of_the_entry_point(self, mocker: MockerFixture, code: int):
+        """`/otaclient/otaclient mount-parameter-set` (`python3 -m otaclient
+        mount-parameter-set`): only the command, not otaclient itself."""
+        _command = mocker.patch.object(
+            parameter_set, "mount_parameter_set_command", return_value=code
+        )
+        _main = mocker.patch("otaclient.main.main")
+        mocker.patch.object(sys, "argv", ["otaclient", "mount-parameter-set"])
+        with pytest.raises(SystemExit) as _exit:
+            runpy.run_module("otaclient", run_name="__main__")
+        assert _exit.value.code == code
+        _command.assert_called_once_with()
+        _main.assert_not_called()
+
+
+class TestAnotherBasesSetInTheSlotsOwnStore:
+    """A store on the slot's own root that holds the set of another image (its
+    version file changed in place): no other slot can lay it, so it is dropped
+    whatever the status."""
+
+    def test_dropped_also_when_not_committed(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ):
+        _record = apply_set(store, PARAMS, base_image_id="image-a")
+        reboot(mounter)
+        runner.ran.clear()
+        assert store.mount_at_boot("image-b") is True
+        assert mounter.mounted == {}
+        assert (
+            store.check_at_startup(
+                "image-b",
+                slot_records=FakeSlotRecords("2.0.0", None),
+                base_committed=False,
+            )
+            is None
+        )
+        assert store.applied_record() is None
+        assert mounter.mounted == {} and runner.ran == []
+        _last = history(store)[-1]
+        assert _last["event"] == "dropped"
+        assert _last["set_manifest_digest"] == _record.set_manifest_digest
+
+    def test_its_own_bind_in_this_boot_goes_and_the_bases_mount_stays(
+        self, store: ParameterSetStore, mounter: FakeMounter, tmp_path: Path
+    ):
+        """Laid in this boot before the version file changed in place: the set's own
+        bind is taken away with it. A mount of the base's own at another slot path
+        of the set stays."""
+        apply_set(store, PARAMS, LAUNCH, base_image_id="image-a")
+        _bases = tmp_path / "bases-own"
+        _bases.mkdir()
+        mounter.mounted[LAUNCH.path] = (_bases, _bases.stat().st_ino)
+        store.check_at_startup(
+            "image-b",
+            slot_records=FakeSlotRecords("2.0.0", None),
+            base_committed=True,
+        )
+        assert PARAMS.path not in mounter.mounted
+        assert mounter.shows(LAUNCH.path, _bases)
+
+
+class TestAnotherBasesSet:
+    """A store the slots share holds the set base A applied while base B runs: the
+    trial boot of B after a full update, which may still fall back to A."""
+
+    A, B = "image-a", "image-b"
+
+    @pytest.fixture
+    def shared(self, on_the_slots_own_root) -> None:
+        on_the_slots_own_root.return_value = False
+
+    @pytest.fixture
+    def on_a(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner, shared
+    ) -> AppliedRecord:
+        """A's set, applied on A; then the reboot into B."""
+        _record = apply_set(store, PARAMS, base_image_id=self.A)
+        reboot(mounter)
+        runner.ran.clear()
+        return _record
+
+    def records_of(self, record: AppliedRecord) -> FakeSlotRecords:
+        return FakeSlotRecords(
+            record.firmware_version, VersionDetail(image_id=record.image_id)
+        )
+
+    def test_a_trial_not_committed_keeps_the_set(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        on_a: AppliedRecord,
+    ):
+        """Neither the boot nor otaclient's start lays it on B; the store is kept as
+        it is, said once per boot."""
+        assert store.mount_at_boot(self.B) is True
+        _records = FakeSlotRecords("2.0.0", None)
+        for _ in range(2):  # otaclient restarts
+            assert (
+                store.check_at_startup(
+                    self.B, slot_records=_records, base_committed=False
+                )
+                is None
+            )
+        assert mounter.mounted == {} and runner.ran == []
+        assert store.applied_record() == on_a
+        assert events(store).count("not_laid") == 1
+        assert history(store)[-1]["set_manifest_digest"] == on_a.set_manifest_digest
+        assert _records.version == "2.0.0"
+
+    def test_the_fallback_base_lays_it_again(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        on_a: AppliedRecord,
+    ):
+        """The trial of B was not committed and the platform went back to A: the IDs
+        match again, and A's set is laid as on any boot."""
+        store.check_at_startup(
+            self.B, slot_records=FakeSlotRecords("2.0.0", None), base_committed=False
+        )
+        reboot(mounter)
+
+        assert store.mount_at_boot(self.A) is True
+        # A booted at FAILURE (its update did not finish): its own set all the same
+        assert (
+            store.check_at_startup(
+                self.A, slot_records=self.records_of(on_a), base_committed=False
+            )
+            == on_a
+        )
+        assert mounter.shows(PARAMS.path, store.tree_of(PARAMS))
+        assert runner.ran == [], "laid at boot, before what reads it"
+
+    def test_a_committed_base_drops_it(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        on_a: AppliedRecord,
+    ):
+        _records = FakeSlotRecords("2.0.0", VersionDetail(image_id=self.B))
+        assert (
+            store.check_at_startup(self.B, slot_records=_records, base_committed=True)
+            is None
+        )
+        assert store.applied_record() is None
+        assert mounter.mounted == {} and runner.ran == []
+        assert events(store)[-1] == "dropped"
+        assert _records.version == "2.0.0", "B's records are B's"
+
+    def test_a_switch_a_did_not_finish_is_not_bs_to_finish(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        shared,
+    ):
+        """previous/ of A's: not completed nor rolled back with B's records; kept
+        until B is committed, then dropped with the rest."""
+        apply_set(store, PARAMS, base_image_id=self.A)
+        stage(store, PARAMS, content="v2", base_image_id=self.A)
+        store.switch()
+        reboot(mounter)
+        runner.ran.clear()
+        _records = FakeSlotRecords("2.0.0", None)
+
+        assert store.mount_at_boot(self.B) is True
+        store.check_at_startup(self.B, slot_records=_records, base_committed=False)
+        assert store.previous_dir.exists() and store.applied_dir.exists()
+        assert mounter.mounted == {} and runner.ran == []
+
+        store.check_at_startup(self.B, slot_records=_records, base_committed=True)
+        assert not store.previous_dir.exists() and not store.applied_dir.exists()
+        assert mounter.mounted == {} and runner.ran == []
+
+    def test_an_unreadable_record_is_dropped_only_once_committed(
+        self, store: ParameterSetStore, mounter: FakeMounter, on_a: AppliedRecord
+    ):
+        (store.applied_dir / "record.json").write_text("{")
+        _records = FakeSlotRecords("2.0.0", None)
+        store.check_at_startup(self.B, slot_records=_records, base_committed=False)
+        assert store.applied_dir.exists()
+        store.check_at_startup(self.B, slot_records=_records, base_committed=True)
+        assert not store.applied_dir.exists()
+
+    def test_a_set_on_a_base_without_an_id_is_never_laid_from_a_shared_store(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        shared,
+    ):
+        """ "" is every such base's ID: A's set would be laid on B. Such a record is
+        not made any more (the update refuses it); one found is not laid."""
+        _record = apply_set(store, PARAMS, base_image_id="")
+        reboot(mounter)
+        runner.ran.clear()
+
+        assert store.mount_at_boot("") is True
+        assert mounter.mounted == {}
+        _records = self.records_of(_record)
+        store.check_at_startup("", slot_records=_records, base_committed=False)
+        assert store.applied_record() == _record and mounter.mounted == {}
+        store.check_at_startup("", slot_records=_records, base_committed=True)
+        assert store.applied_record() is None and mounter.mounted == {}
+        assert runner.ran == []
+        assert "without an image ID" in history(store)[-1]["reason"]
+
+    def test_a_set_of_another_base_is_replaced_not_the_set_before(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        on_a: AppliedRecord,
+    ):
+        """A new set on B: every slot of it is applied (nothing compared with A's),
+        and when it fails, B goes back to its defaults, not to A's set."""
+        store.set_aside_another_bases_set(
+            self.B, slot_records=FakeSlotRecords("2.0.0", None)
+        )
+        assert store.applied_record() is None
+        assert events(store)[-1] == "dropped"
+
+        stage(store, PARAMS, base_image_id=self.B)  # the same files as A's
+        runner.fail_times = 1
+        with pytest.raises(ParameterSetFailed) as _e:
+            store.switch()
+        assert _e.value.restored
+        assert runner.ran == [PARAMS.apply], "applied: not compared with A's"
+        assert store.applied_record() is None and mounter.mounted == {}
+
+    def test_the_running_bases_set_is_the_set_before(
+        self, store: ParameterSetStore, shared
+    ):
+        _record = apply_set(store, PARAMS, base_image_id=self.B)
+        store.set_aside_another_bases_set(self.B, slot_records=self.records_of(_record))
+        assert store.applied_record() == _record
+
+    def test_an_unreadable_set_is_not_the_set_before_either(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner, shared
+    ):
+        """Whose it is cannot be told: set aside, and a new set that fails goes back
+        to the base's defaults."""
+        apply_set(store, PARAMS, base_image_id=self.B)
+        (store.applied_dir / "record.json").write_text("{")
+        reboot(mounter)
+        runner.ran.clear()
+        store.set_aside_another_bases_set(
+            self.B, slot_records=FakeSlotRecords("2.0.0", None)
+        )
+        assert not store.applied_dir.exists()
+        assert "unreadable" in history(store)[-1]["reason"]
+
+        stage(store, PARAMS, content="v2", base_image_id=self.B)
+        runner.fail_times = 1
+        with pytest.raises(ParameterSetFailed) as _e:
+            store.switch()
+        assert _e.value.restored
+        assert runner.ran == [PARAMS.apply]
+        assert store.applied_record() is None and mounter.mounted == {}
+
+    def test_a_newer_schema_is_not_laid_at_boot(
+        self, store: ParameterSetStore, mounter: FakeMounter, shared
+    ):
+        """Its fields may mean what this otaclient does not know: left to the start
+        of the otaclient that runs."""
+        _record = apply_set(store, PARAMS, base_image_id=self.B)
+        reboot(mounter)
+        (store.applied_dir / "record.json").write_text(
+            _record.model_copy(update={"schema_version": 2}).model_dump_json()
+        )
+        assert store.mount_at_boot(self.B) is True
+        assert mounter.mounted == {}
+
+
+class TestTheSameImageAgain:
+    """A full update installs, in the other slot, the very image a set in a store the
+    slots share was applied on (the base release delivered again, to clear the set):
+    the image ID cannot tell the two slots apart, the mark of the staged full update
+    and the slot's records do."""
+
+    X = "image-x"
+
+    @pytest.fixture
+    def staged(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        on_the_slots_own_root,
+    ) -> AppliedRecord:
+        """S applied on slot A over X; a full update to X staged from A; the reboot."""
+        on_the_slots_own_root.return_value = False
+        _record = apply_set(store, PARAMS, base_image_id=self.X)
+        store.carry_history_to(None, to_version="2.0.0")
+        reboot(mounter)
+        runner.ran.clear()
+        return _record
+
+    @staticmethod
+    def new_slots_records() -> FakeSlotRecords:
+        return FakeSlotRecords("2.0.0", VersionDetail(image_id="image-x"))
+
+    @staticmethod
+    def records_of(record: AppliedRecord) -> FakeSlotRecords:
+        return FakeSlotRecords(
+            record.firmware_version, VersionDetail(image_id=record.image_id)
+        )
+
+    def test_the_boot_lays_nothing_while_a_full_update_is_staged(
+        self, store: ParameterSetStore, mounter: FakeMounter, staged: AppliedRecord
+    ):
+        _history = store.history_file.read_text()
+        assert store.mount_at_boot(self.X) is True
+        assert mounter.mounted == {}
+        assert store.history_file.read_text() == _history
+
+    def test_the_new_slot_committed_drops_it(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        staged: AppliedRecord,
+    ):
+        _records = self.new_slots_records()
+        assert (
+            store.check_at_startup(self.X, slot_records=_records, base_committed=True)
+            is None
+        )
+        assert store.applied_record() is None and mounter.mounted == {}
+        assert not store.base_change_staged()
+        assert runner.ran == []
+        assert _records.version == "2.0.0", "the new slot reports its own base"
+        assert "this slot does not record" in history(store)[-1]["reason"]
+
+    def test_the_new_slot_not_committed_keeps_it_and_the_mark(
+        self, store: ParameterSetStore, mounter: FakeMounter, staged: AppliedRecord
+    ):
+        assert (
+            store.check_at_startup(
+                self.X, slot_records=self.new_slots_records(), base_committed=False
+            )
+            is None
+        )
+        assert store.applied_record() == staged and mounter.mounted == {}
+        assert store.base_change_staged()
+
+    def test_the_slot_it_was_applied_on_lays_and_applies_it(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        staged: AppliedRecord,
+    ):
+        """A fell back (or never switched): it still records S's release. The boot
+        laid nothing, so what reads the slots runs with the defaults: S is laid and
+        its slots applied, and the mark goes."""
+        assert store.mount_at_boot(self.X) is True
+        assert (
+            store.check_at_startup(
+                self.X, slot_records=self.records_of(staged), base_committed=False
+            )
+            == staged
+        )
+        assert mounter.shows(PARAMS.path, store.tree_of(PARAMS))
+        assert runner.ran == [PARAMS.apply]
+        assert not store.base_change_staged()
+        assert "base_change_not_taken" in events(store)
+        # the next boot lays it again, as any
+        reboot(mounter)
+        assert store.mount_at_boot(self.X) is True
+        assert mounter.shows(PARAMS.path, store.tree_of(PARAMS))
+
+
+class TestTheStoreIsRoots:
+    """Every directory from the mount point the store is on (tmp_path here) down to
+    the store is root's alone."""
+
+    @pytest.mark.parametrize(
+        "spoil, match",
+        (
+            pytest.param(lambda d: d.chmod(0o777), "mode 777", id="others_can_write"),
+            pytest.param(
+                lambda d: d.chmod(0o775), "mode 775", id="the_group_can_write"
+            ),
+            pytest.param(
+                lambda d: os.chown(d, 1000, 1000),
+                "owner uid 1000",
+                id="not_roots",
+                marks=pytest.mark.skipif(
+                    os.geteuid() != 0, reason="giving a directory away takes root"
+                ),
+            ),
+        ),
+    )
+    def test_a_directory_on_the_way_another_user_can_change(
+        self, tmp_path: Path, spoil, match: str
+    ):
+        _store = tmp_path / "opt/data/ota/parameter-set"
+        _io.ensure_private_dir(_store, mode=0o700)
+        assert why_not_private(_store) is None, "as made: root's"
+        spoil(tmp_path / "opt/data")
+        _why = why_not_private(_store)
+        assert _why is not None and match in _why
+        assert str(tmp_path / "opt/data") in _why
+
+    def test_a_link_on_the_way(self, tmp_path: Path):
+        (tmp_path / "elsewhere/ota").mkdir(mode=0o755, parents=True)
+        (tmp_path / "opt").mkdir(mode=0o755)
+        (tmp_path / "opt/data").symlink_to(tmp_path / "elsewhere")
+        _why = why_not_private(tmp_path / "opt/data/ota/parameter-set")
+        assert _why == f"{tmp_path / 'opt/data'} is a symlink"
+
+    def test_what_is_not_there_yet_is_not_looked_at(self, tmp_path: Path):
+        (tmp_path / "opt").mkdir(mode=0o755)
+        assert why_not_private(tmp_path / "opt/data/ota/x") is None
+
+    def test_what_otaclient_makes_is_made_with_its_modes(self, tmp_path: Path):
+        """/opt/data and /opt/data/ota 0755, the store 0700, whatever the umask."""
+        (tmp_path / "opt").mkdir(mode=0o750)
+        _umask = os.umask(0o077)
+        try:
+            ParameterSetStore(
+                root=tmp_path / "opt/data/ota/parameter-set"
+            ).record_event("made")
+        finally:
+            os.umask(_umask)
+        assert (
+            stat.S_IMODE((tmp_path / "opt/data/ota/parameter-set").stat().st_mode)
+            == 0o700
+        )
+        for _made in ("opt/data", "opt/data/ota"):
+            assert stat.S_IMODE((tmp_path / _made).stat().st_mode) == 0o755
+        assert stat.S_IMODE((tmp_path / "opt").stat().st_mode) == 0o750
+
+    def test_the_release_of_a_set_not_laid_is_not_reported(
+        self, store: ParameterSetStore, mocker: MockerFixture
+    ):
+        """The slot reports its base, not the release of a set it does not lay."""
+        _record = apply_set(store, PARAMS)
+        mocker.patch.object(
+            _image_version_file, "ParameterSetStore", return_value=store
+        )
+        _recorded = VersionDetail(release_name="r", image_id=_record.image_id)
+        assert _image_version_file._release_of_the_applied_parameter_set(
+            _recorded, BASE_ID
+        )
+        store.root.parent.chmod(0o777)
+        assert not _image_version_file._release_of_the_applied_parameter_set(
+            _recorded, BASE_ID
+        )
+
+    @pytest.fixture
+    def planted(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    ) -> Path:
+        """A set applied, then the directory holding the store opened to others."""
+        apply_set(store, PARAMS)
+        reboot(mounter)
+        runner.ran.clear()
+        store.root.parent.chmod(0o777)
+        return store.root.parent
+
+    def test_nothing_is_laid_at_boot(
+        self, store: ParameterSetStore, mounter: FakeMounter, planted: Path
+    ):
+        _history = store.history_file.read_text()
+        assert store.mount_at_boot(BASE_ID) is False
+        assert mounter.mounted == {}
+        assert store.history_file.read_text() == _history, "nothing recorded"
+
+    def test_nothing_is_laid_nor_deleted_at_startup(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        planted: Path,
+    ):
+        _history = store.history_file.read_text()
+        for _image, _committed in ((BASE_ID, True), ("another-image", True)):
+            assert (
+                store.check_at_startup(
+                    _image,
+                    slot_records=FakeSlotRecords("", None),
+                    base_committed=_committed,
+                )
+                is None
+            )
+        assert mounter.mounted == {} and runner.ran == []
+        assert store.applied_dir.exists(), "not deleted"
+        assert store.history_file.read_text() == _history

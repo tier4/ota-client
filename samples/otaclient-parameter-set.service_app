@@ -1,0 +1,42 @@
+[Unit]
+Description=OTAClient: mount the applied parameter set
+# runs before local-fs.target, so that every slot of the set is bound before
+#   anything that reads it starts: no default dependencies, only the mounts of the
+#   store and of the app image are waited for, after the root is remounted.
+# needs an otaclient app image that has `mount-parameter-set` (released after
+#   v4.0.0rc6): an older one would start otaclient itself here.
+# a platform that prepares /opt/data at boot (who owns it included) is ordered
+#   before this unit by a drop-in (After=).
+DefaultDependencies=no
+RequiresMountsFor=/opt/data/ota/parameter-set /opt/ota/client/otaclient.squashfs
+After=local-fs-pre.target systemd-remount-fs.service
+Conflicts=shutdown.target
+Before=local-fs.target shutdown.target
+# nothing to lay without a set (a full update's mark lies beside applied/)
+ConditionPathExists=|/opt/data/ota/parameter-set/applied
+ConditionPathExists=|/opt/data/ota/parameter-set/previous
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=2min
+Environment=RUNNING_AS_APP_IMAGE=yes
+RootImage=/opt/ota/client/otaclient.squashfs
+ExecStart=/otaclient/otaclient mount-parameter-set
+
+BindPaths=/boot:/boot:rbind
+BindPaths=/dev:/dev
+BindPaths=/dev/shm:/dev/shm
+BindPaths=/etc:/etc
+BindPaths=/opt:/opt
+BindPaths=/proc:/proc
+BindPaths=/root:/root
+BindPaths=/sys:/sys:rbind
+BindPaths=/run:/run
+BindReadOnlyPaths=-/usr/share/ca-certificates:/usr/share/ca-certificates
+BindReadOnlyPaths=-/usr/local/share/ca-certificates:/usr/local/share/ca-certificates
+BindReadOnlyPaths=-/usr/share/zoneinfo:/usr/share/zoneinfo
+BindPaths=/:/host_root:rbind
+
+[Install]
+WantedBy=local-fs.target

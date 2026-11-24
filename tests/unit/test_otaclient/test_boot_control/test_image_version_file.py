@@ -102,7 +102,8 @@ def with_image_id(image_id: object) -> dict:
 def no_parameter_set_applied(mocker: MockerFixture):
     """The store is the running slot's /opt: never read here unless a test says so."""
     _store = mocker.MagicMock()
-    _store.applied_record.return_value = None
+    _store.why_not_trusted.return_value = None
+    _store.whose_set.return_value = (None, None)
     mocker.patch.object(_image_version_file, "ParameterSetStore", return_value=_store)
 
 
@@ -301,9 +302,17 @@ class TestTheReleaseOfAParameterSet:
         )
         return _ctrl
 
-    def applied(self, mocker: MockerFixture, record) -> None:
+    def applied(self, mocker: MockerFixture, record, *, trusted: bool = True) -> None:
+        """The store holds `record`: the running base's when it was applied over the
+        running image (`whose_set` tells), laid when the store is trusted."""
         _store = mocker.MagicMock()
-        _store.applied_record.return_value = record
+        _store.why_not_trusted.return_value = None if trusted else "not root's"
+        _store.whose_set.side_effect = lambda running_image_id: (
+            record,
+            None
+            if record is None or record.base_image_id == running_image_id
+            else "applied on another image",
+        )
         mocker.patch.object(
             _image_version_file, "ParameterSetStore", return_value=_store
         )
@@ -320,6 +329,19 @@ class TestTheReleaseOfAParameterSet:
         ) == VersionDetail(
             release_name="params", release_id="rid", image_id="parameter-image"
         )
+
+    def test_a_set_in_a_store_not_trusted_is_not_reported(
+        self, mocker: MockerFixture, recorded_parameter_release
+    ):
+        """Nothing is laid from it: the slot reports its base."""
+        self.applied(
+            mocker,
+            mocker.MagicMock(image_id="parameter-image", base_image_id=IMAGE_ID),
+            trusted=False,
+        )
+        assert resolve_active_slot_version_detail(
+            recorded_parameter_release
+        ) == VersionDetail(image_id=IMAGE_ID)
 
     @pytest.mark.parametrize(
         "record",
