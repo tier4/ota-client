@@ -56,18 +56,14 @@ platform's boot scripts.
 From tier4/ota-esync-agent: deploy/common/ota-optdata-firstboot (the trees on
 optdata), deploy/install-agent.sh (the DPI, its wrapper and directories) and
 deploy/*/install-platform.sh (the links into optdata, the boot scripts). The eSync
-download and staged packages are under /opt/data/ota (`OTA_PLATFORM_PATHS`)."""
+download and staged packages are under /opt/data/ota, which the image library reserves
+itself (RESERVED_PATHS, from ota-image-libs 0.9.0 on), as it does /etc/ota and
+/usr/lib/ota."""
 
 APPLY_MAY_BE_IN = ("/usr/local/sbin",)
 """Reserved for a slot (one there would hide the DPI's wrapper and the platform's boot
 scripts), but where a base's own `apply` may live: an `apply` there runs the base's
 program, as any other of the base's."""
-
-# TODO(ota-image-libs>0.8.0): in its RESERVED_PATHS from the next release on
-OTA_PLATFORM_PATHS = ("/opt/data/ota", "/etc/ota", "/usr/lib/ota")
-"""What the image library reserves from its next release on: the OTA stores on
-optdata (the eSync download and staged packages, the parameter set store), and the
-OTA platform's configuration and programs in the image."""
 
 
 def _resolve_on(host_root: str, path: str) -> str | None:
@@ -106,7 +102,7 @@ def platform_reserved_paths(
     platform's and the DPI's paths, and the DPI this ECU names (`dpi_executable`):
     as named, and the file it resolves to on the host at `host_root` with the
     directory that holds it."""
-    _paths = {STAGING_DPATH, *DPI_PLATFORM_PATHS, *OTA_PLATFORM_PATHS}
+    _paths = {STAGING_DPATH, *DPI_PLATFORM_PATHS}
     _paths.update(str(Path(_d) / OTA_STATUS_DNAME) for _d in STATE_DPATHS.values())
     if dpi_executable:
         _paths.add(os.path.normpath(dpi_executable))

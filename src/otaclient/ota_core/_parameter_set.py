@@ -22,7 +22,7 @@ import shutil
 import stat
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -39,7 +39,7 @@ from ota_image_libs.v1.parameter_set.schema import (
 )
 from ota_image_libs.v1.parameter_set.slots import (
     APPLY_REBOOT,
-    RESERVED_PATHS,
+    ParameterSlotRef,
     apply_comes_with_set,
     check_applies_in_set,
     check_slots_in_tree,
@@ -54,7 +54,6 @@ from otaclient._types import UpdatePhase, VersionDetail
 from otaclient.boot_control._image_version_file import running_image_id
 from otaclient.boot_control._platform_paths import (
     APPLY_MAY_BE_IN,
-    OTA_PLATFORM_PATHS,
     platform_reserved_paths,
 )
 from otaclient.boot_control.protocol import ParameterSetBootControllerProtocol
@@ -98,16 +97,16 @@ BOOT_UNIT_WANTS = tuple(
 
 def reserved_paths(*, host_root: str = cfg.CANONICAL_ROOT) -> tuple[str, ...]:
     """What otaclient reads or writes for itself, besides what every consumer does
-    (the image library's RESERVED_PATHS, as of 0.8.0: /boot, /etc/fstab, /opt/ota,
-    /usr/share/ota): never a slot's, nor inside one.
+    (the image library's RESERVED_PATHS, as of 0.9.0: /boot, /etc/fstab, /etc/ota,
+    /opt/ota, /opt/data/ota, /usr/lib/ota, /usr/share/ota): never a slot's, nor
+    inside one.
 
     The parameter set store is among them (a slot over it would hide the set it is
-    laid from), with what the image library reserves from its next release on
-    (`OTA_PLATFORM_PATHS`: /opt/data/ota, which holds the store, /etc/ota and
-    /usr/lib/ota) and what otaclient and the OTA platform keep outside the slots'
-    own files (`platform_reserved_paths`, the DPI this ECU names as it resolves on
-    the host at `host_root`): a slot over one of them would hide what the platform
-    or the next update needs."""
+    laid from; the library reserves /opt/data/ota, which holds it, as well), with
+    what otaclient and the OTA platform keep outside the slots' own files
+    (`platform_reserved_paths`, the DPI this ECU names as it resolves on the host at
+    `host_root`): a slot over one of them would hide what the platform or the next
+    update needs."""
     _paths = (
         "/proc",
         "/sys",
@@ -130,6 +129,19 @@ def reserved_paths(*, host_root: str = cfg.CANONICAL_ROOT) -> tuple[str, ...]:
 
 def _within(path: str, top: str) -> bool:
     return path == top or path.startswith(top.rstrip("/") + "/")
+
+
+def _check_no_slot_over(
+    slots: Iterable[ParameterSlotRef], paths: Iterable[str]
+) -> None:
+    """No slot is over one of `paths` (the same path, inside, or containing it)."""
+    for _slot in slots:
+        for _path in paths:
+            if _within(_slot.path, _path) or _within(_path, _slot.path):
+                raise ValueError(
+                    f"the consumer: slot {_slot.name!r} ({_slot.path}) overlaps "
+                    f"{_path}, which a consumer reads for itself"
+                )
 
 
 class OTAUpdaterForParameterSet(OTAUpdateInitializer):
@@ -256,7 +268,15 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         self._check_the_ecu_keeps_the_set()
         _reserved = reserved_paths(host_root=str(self._host_root))
         try:
-            check_slots_in_tree(self._host_root, self.config.slots, reserved=_reserved)
+            # the library refuses a slot over a reserved path and an `apply` in one:
+            #   where a base's own `apply` may live (APPLY_MAY_BE_IN), only the slots
+            #   are kept out, here
+            check_slots_in_tree(
+                self._host_root,
+                self.config.slots,
+                reserved=[_p for _p in _reserved if _p not in APPLY_MAY_BE_IN],
+            )
+            _check_no_slot_over(self.config.slots, APPLY_MAY_BE_IN)
         except ValueError as e:
             raise ota_errors.ParameterSetNotApplicable(
                 f"the running image has no room for the parameter set: {e}",
@@ -272,7 +292,6 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             _of_base = [(_slot.path, "path")]
             if not apply_comes_with_set(_slot, self.config.slots):
                 _of_base.append((_slot.apply, "apply"))
-                self._check_apply_not_reserved(_slot.name, _slot.apply, _reserved)
             for _path, _what in _of_base:
                 _over = next(
                     (_c for _c in _covered if _path.startswith(_c + "/")), None
@@ -344,25 +363,6 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                 f"({_why}): apply again once this base is committed",
                 module=__name__,
             )
-
-    def _check_apply_not_reserved(
-        self, name: str, apply: str, reserved: tuple[str, ...]
-    ) -> None:
-        """An `apply` of the base is not in a path otaclient or the platform uses for
-        itself: what runs there is theirs, not a set's.
-
-        TODO(ota-image-libs>0.8.0): refused by `check_slots_in_tree` from its next
-        release on (with /opt/data/ota, /etc/ota and /usr/lib/ota among its
-        RESERVED_PATHS)."""
-        for _top in (*RESERVED_PATHS, *OTA_PLATFORM_PATHS, *reserved):
-            if _top in APPLY_MAY_BE_IN:
-                continue
-            if _within(apply, _top):
-                raise ota_errors.ParameterSetNotApplicable(
-                    f"slot {name!r}: its apply {apply} is in {_top}, which otaclient "
-                    "or the OTA platform uses for itself",
-                    module=__name__,
-                )
 
     def _check_mount_point_can_be_made(self, name: str, path: str) -> None:
         """A slot directory the running image does not have is made when the slot is

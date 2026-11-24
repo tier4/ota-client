@@ -96,13 +96,15 @@ def parameter_image(
     files: list | None | str = "the layer's",
     ecu: str = "autoware",
     slots: list[ParameterSlot] | None = None,
+    config: ParameterSetConfig | None = None,
 ) -> tuple[Path, ImageIndex]:
-    """The blobs of a parameter image with one set for THIS_ECU, and its index."""
+    """The blobs of a parameter image with one set for THIS_ECU, and its index;
+    `config` (with `tree=None`) replaces the set's config as is."""
     _blobs = root / "blobs"
     _blobs.mkdir(parents=True)
     if tree is None:
         _layer = EmptyDescriptor.add_contents_to_resource_dir(EMPTY_JSON, _blobs)
-        _config = ParameterSetConfig(name="p", version="2026.10.29-1")
+        _config = config or ParameterSetConfig(name="p", version="2026.10.29-1")
     else:
         _slots = slots or [PARAMS]
         _out = io.BytesIO()
@@ -566,17 +568,10 @@ class TestParameterSetUpdate:
             "/ota-cache",
             "/proc/x",
             "/.ota-resources/x",
-            # the parameter set store, and what holds it
-            # NOTE: from the next ota-image-libs on, /opt/data/ota (and these two,
-            #   in it) are among its RESERVED_PATHS, refused when the config is
-            #   parsed (E422): build these two in a test of an invalid image then
-            "/opt/data/ota/parameter-set/applied/tree/opt/x",
-            "/opt/data/ota",
-            "/opt/data",
-            # the OTA platform in the image, and what otaclient and the platform keep
-            #   on a partition-based layout's /opt/data
-            "/etc/ota",
-            "/usr/lib/ota/x",
+            # what otaclient and the platform keep on a partition-based layout's
+            #   /opt/data (the image library's own reserved paths, the parameter set
+            #   store's /opt/data/ota among them, do not even parse: see
+            #   test_a_set_over_what_the_image_library_reserves_is_an_invalid_image)
             "/opt/data/otaclient/staging",
             "/opt/data/ota-status",
             "/opt/data/ota-esync",
@@ -908,6 +903,48 @@ class TestParameterSetUpdate:
                 boot_controller=boot_controller,
             ).execute()
         assert store.applied_record() is None and not store.staging_dir.exists()
+        boot_controller.restore_recorded_version.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "path, apply",
+        (
+            # the parameter set store, and what holds it
+            ("/opt/data/ota/parameter-set/applied/tree/opt/x", "reboot"),
+            ("/opt/data/ota", "reboot"),
+            ("/opt/data", "reboot"),
+            # the ECU's identity and the image's trust anchors, which the DPI reads
+            ("/etc/ota", "reboot"),
+            ("/usr/lib/ota/x", "reboot"),
+            # an apply of the base there
+            ("/opt/autoware/vehicle/vehicle.test", "/usr/lib/ota/apply-parameters"),
+        ),
+    )
+    def test_a_set_over_what_the_image_library_reserves_is_an_invalid_image(
+        self, tmp_path: Path, store, host_root, boot_controller, path: str, apply: str
+    ):
+        """ota-image-libs (0.9.0 on) refuses such a config when it is parsed: the
+        parameter image is invalid, before anything of the running base is looked at."""
+        _blobs, _index = parameter_image(
+            tmp_path / "image",
+            tree=None,
+            config=ParameterSetConfig.model_construct(
+                name="p",
+                version="1",
+                slots=[ParameterSlot(name="s", path=path, apply=apply)],
+                diff_ids=[Sha256Digest("1" * 64)],
+            ),
+        )
+        with pytest.raises(ota_errors.OTAImageInvalid, match="reads for itself") as _e:
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                host_root=host_root,
+                boot_controller=boot_controller,
+            ).execute()
+        assert _e.value.get_failure_reason().startswith("E422: ")
+        assert store.applied_record() is None
         boot_controller.restore_recorded_version.assert_not_called()
 
     def test_a_layer_other_than_its_digest_is_an_invalid_image(
@@ -1311,22 +1348,24 @@ class TestWhatTheEcuNeeds:
     def test_an_apply_of_the_base_in_a_reserved_path_is_refused(
         self, tmp_path: Path, store, host_root, boot_controller
     ):
-        """What runs there is otaclient's or the platform's.
-
-        TODO(ota-image-libs>0.8.0): refused by the image library from then on."""
-        _apply = host_root / "usr/lib/ota/apply-parameters"
+        """What runs there is otaclient's or the platform's: otaclient passes the paths
+        it reserves to the image library's check, which refuses an `apply` in one."""
+        _apply = host_root / "usr/local/lib/rootfs-ua/apply-parameters"
         _apply.parent.mkdir(mode=0o755, parents=True)
         _apply.write_text("#!/bin/sh\n")
         _apply.chmod(0o755)
         _slot = ParameterSlot(
-            name=PARAMS.name, path=PARAMS.path, apply="/usr/lib/ota/apply-parameters"
+            name=PARAMS.name,
+            path=PARAMS.path,
+            apply="/usr/local/lib/rootfs-ua/apply-parameters",
         )
         with pytest.raises(
-            ota_errors.ParameterSetNotApplicable, match="its apply .* is in"
-        ):
+            ota_errors.ParameterSetNotApplicable, match="apply .* is in"
+        ) as _e:
             an_updater_with_slots(
                 tmp_path, store, host_root, boot_controller, _slot
             )._check_fits_the_running_base()
+        assert _e.value.get_failure_reason().startswith("E463: ")
 
     def test_an_apply_of_the_base_in_usr_local_sbin_is_taken(
         self, tmp_path: Path, store, host_root, boot_controller
