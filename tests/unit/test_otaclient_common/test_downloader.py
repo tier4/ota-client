@@ -32,10 +32,12 @@ import pytest_mock
 import zstandard
 from requests.structures import CaseInsensitiveDict as CIDict
 
+from otaclient_common import downloader as downloader_module
 from otaclient_common.downloader import (
     DEFAULT_RETRY_COUNT,
     DEFAULT_RETRY_STATUS,
     BrokenDecompressionError,
+    DownloadCancelled,
     Downloader,
     DownloaderPool,
     DownloadError,
@@ -46,6 +48,7 @@ from otaclient_common.downloader import (
     ZstdDecompressionAdapter,
     _hash_existing,
     _range_honoured,
+    cancel_downloads,
     check_cache_policy_in_resp,
     inject_cache_control_header_in_req,
     inject_cache_retry_directory,
@@ -613,6 +616,165 @@ class TestDownloadHeaderInjection:
         # url scheme rewritten from https → http
         assert mock_get.call_args.args[0].startswith("http://")
         assert "https://" not in mock_get.call_args.args[0]
+
+
+# ---------------- cancel_downloads ---------------- #
+
+
+class _ChunkedResp:
+    """A streamed 200 that hands out <chunks>, calling <before> ahead of the chunk at
+    index <at> (what arrives while a download is in flight)."""
+
+    status_code = 200
+
+    def __init__(self, chunks: list[bytes], *, at: int = -1, before=None) -> None:
+        self.headers = CIDict({})
+        self.raw = type("_Raw", (), {"retries": None})()
+        self._chunks, self._at, self._before = chunks, at, before
+        self.served = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def iter_content(self, chunk_size: int):
+        for _i, _chunk in enumerate(self._chunks):
+            if _i == self._at and self._before:
+                self._before()
+            self.served += 1
+            yield _chunk
+
+
+class TestCancelDownloads:
+    """An abort ends the OTA core with a signal, and the process exits once its threads
+    have: a download in flight must stop rather than stream on until its file is whole
+    (a partition payload's rootfs image is gigabytes)."""
+
+    @pytest.fixture
+    def downloader(self):
+        d = Downloader(hash_func=sha256, chunk_size=4)
+        yield d
+        d.close()
+
+    def test_a_download_in_flight_stops_at_its_next_chunk(
+        self, downloader: Downloader, mocker: pytest_mock.MockerFixture, tmp_path
+    ) -> None:
+        _chunks = [b"aaaa", b"bbbb", b"cccc", b"dddd"]
+        _resp = _ChunkedResp(_chunks, at=2, before=cancel_downloads)
+        downloader._session.get = mocker.MagicMock(return_value=_resp)
+        _dst = tmp_path / "blob.part"
+
+        with pytest.raises(DownloadCancelled):
+            downloader.download(
+                "http://127.0.0.1/blob",
+                _dst,
+                size=16,
+                digest=sha256(b"".join(_chunks)).hexdigest(),
+            )
+
+        # what arrived before the cancel stays, for the next update to continue
+        assert _dst.read_bytes() == b"aaaabbbb"
+        assert _resp.served == 3, "nothing is read past the chunk the cancel met"
+        assert downloader._session.get.call_count == 1, "a cancel is not retried"
+
+    def test_no_download_starts_once_downloads_are_cancelled(
+        self, downloader: Downloader, mocker: pytest_mock.MockerFixture, tmp_path
+    ) -> None:
+        downloader._session.get = mocker.MagicMock()
+        cancel_downloads()
+
+        with pytest.raises(DownloadCancelled):
+            downloader.download("http://127.0.0.1/blob", tmp_path / "blob")
+
+        downloader._session.get.assert_not_called()
+        assert not (tmp_path / "blob").exists()
+
+    def test_a_download_decompressed_as_it_arrives_stops_too(
+        self, downloader: Downloader, mocker: pytest_mock.MockerFixture, tmp_path
+    ) -> None:
+        _data = b"0123456789" * 1000
+        _raw = io.BytesIO(zstandard.ZstdCompressor().compress(_data))
+        _read = _raw.read
+
+        def _read_then_cancel(*args):
+            # the first read of the stream is the last one the download gets
+            cancel_downloads()
+            return _read(*args)
+
+        _raw.read = _read_then_cancel  # type: ignore[method-assign]
+        _raw.retries = None  # type: ignore[attr-defined]
+        _resp = _ChunkedResp([])
+        _resp.raw = _raw
+        downloader._session.get = mocker.MagicMock(return_value=_resp)
+
+        with pytest.raises(DownloadCancelled):
+            downloader.download(
+                "http://127.0.0.1/blob",
+                tmp_path / "blob",
+                size=len(_data),
+                digest=sha256(_data).hexdigest(),
+                compression_alg="zstd",
+            )
+        assert (tmp_path / "blob").stat().st_size < len(_data)
+
+
+class TestCancelResumedDownloads:
+    """A download that continues a part first reads the part back to hash it -- for a
+    partition payload's rootfs image, gigabytes: a cancel stops that too."""
+
+    @pytest.fixture
+    def downloader(self):
+        d = Downloader(hash_func=sha256, chunk_size=4)
+        yield d
+        d.close()
+
+    def test_a_cancelled_resume_reads_nothing_back(
+        self, downloader: Downloader, mocker: pytest_mock.MockerFixture, tmp_path
+    ) -> None:
+        _part = tmp_path / "blob.part"
+        _part.write_bytes(b"x" * 64)
+        _hash = mocker.patch(f"{downloader_module.__name__}._hash_existing")
+        downloader._session.get = mocker.MagicMock()
+        cancel_downloads()
+
+        with pytest.raises(DownloadCancelled):
+            downloader.download(
+                "http://127.0.0.1/blob", _part, size=128, resume_from=64
+            )
+
+        _hash.assert_not_called()
+        downloader._session.get.assert_not_called()
+        assert _part.read_bytes() == b"x" * 64, "the part is left for the next try"
+
+    def test_a_cancel_while_the_part_is_hashed_stops_the_hashing(self) -> None:
+        _reads = []
+
+        class _Part(io.BytesIO):
+            def read(self, *args):
+                _reads.append(1)
+                cancel_downloads()  # arrives while the first chunk is read back
+                return super().read(*args)
+
+        with pytest.raises(DownloadCancelled):
+            _hash_existing(_Part(b"x" * 64), sha256(), 64, 4, what="blob.part")
+        assert len(_reads) == 1, "no chunk is read back after the cancel"
+
+    def test_a_request_is_not_retried_once_downloads_are_cancelled(
+        self, downloader: Downloader
+    ) -> None:
+        """urllib3 retries a request on its own (a link that is down waits out the
+        timeout on every one): a cancel takes effect at the next retry."""
+        _retry = downloader._session.get_adapter("http://127.0.0.1/").max_retries
+        assert _retry.increment("GET", "/blob", error=ConnectionError()) is not None
+
+        cancel_downloads()
+        with pytest.raises(DownloadCancelled):
+            _retry.increment("GET", "/blob", error=ConnectionError())
 
 
 # ---------------- DownloaderPool ---------------- #

@@ -113,6 +113,51 @@ class BrokenDecompressionError(DownloadError):
     """
 
 
+class DownloadCancelled(DownloadError):
+    """The download was stopped before its end, by `cancel_downloads`."""
+
+
+# ------ cancellation ------ #
+
+_downloads_cancelled = threading.Event()
+
+
+def cancel_downloads() -> None:
+    """Make every download of this process stop at its next chunk, and refuse new ones.
+
+    An abort ends the OTA core process with a signal, and the process exits only once
+    its threads have: a download in flight would stream on until its file is whole,
+    which for a partition payload's rootfs image is gigabytes, the whole time in
+    ABORTING. A download stops at whichever comes first: its next chunk, the next
+    chunk of the part it re-hashes before it continues, or the next retry of its
+    request. What has arrived is left where it is, for a caller that continues it.
+    """
+    _downloads_cancelled.set()
+
+
+def _raise_if_cancelled(what: StrOrPath) -> None:
+    if _downloads_cancelled.is_set():
+        raise DownloadCancelled(f"downloads are cancelled: {what}")
+
+
+class _CancellableRetry(Retry):
+    """urllib3's retry of a request, which stops retrying once downloads are cancelled.
+
+    A request to a link that is down waits out its connect/read timeout on every one
+    of its retries; a cancel takes effect at the next of them instead of after all.
+    """
+
+    def increment(  # type: ignore[override]
+        self,
+        method: str | None = None,
+        url: str | None = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Retry:
+        _raise_if_cancelled(url or "a request being retried")
+        return super().increment(method, url, *args, **kwargs)
+
+
 # ------ decompression support ------ #
 
 
@@ -360,7 +405,7 @@ class Downloader:
         http_adapter = HTTPAdapter(
             pool_connections=connection_pool_size,
             pool_maxsize=connection_pool_size,
-            max_retries=Retry(
+            max_retries=_CancellableRetry(
                 total=retry_count,
                 status_forcelist=retry_on_status,
                 allowed_methods=["GET"],
@@ -432,10 +477,14 @@ class Downloader:
         Raises:
             PartialDownloaded: When <size> is specified and the downloaded file's size doesn't match the expected size.
             HashVerificationError: When <digest> is specified and the downloaded file's digest doesn't match the expected digest.
+            DownloadCancelled: When `cancel_downloads` has been called, before or during the download.
 
         Returns:
             An instance of DownloadResult.
         """
+        # nothing is started once downloads are cancelled, not even the re-hashing of
+        #   a part to continue, which for a rootfs image is gigabytes read back
+        _raise_if_cancelled(url)
         proxies = self._proxies
 
         prepared_url = url
@@ -482,6 +531,7 @@ class Downloader:
 
         err_count, downloaded_file_size, traffic_on_wire = 0, 0, 0
 
+        _raise_if_cancelled(prepared_url)
         with self._session.get(
             prepared_url, stream=True, headers=prepared_headers, timeout=timeout
         ) as resp:
@@ -520,6 +570,7 @@ class Downloader:
                 if decompressor := self._get_decompressor(compression_alg):
                     # NOTE: raw_resp(HTTPResponse) here is configured to be an IO[bytes]
                     for _chunk in decompressor.iter_chunk(raw_resp):  # type: ignore
+                        _raise_if_cancelled(prepared_url)
                         digestobj.update(_chunk)
                         dst_fp.write(_chunk)
                         downloaded_file_size += len(_chunk)
@@ -529,6 +580,7 @@ class Downloader:
                         traffic_on_wire = new_traffic_on_wire
                 else:  # no compression is configured
                     for _chunk in resp.iter_content(chunk_size=self.chunk_size):
+                        _raise_if_cancelled(prepared_url)
                         digestobj.update(_chunk)
                         dst_fp.write(_chunk)
                         downloaded_file_size += len(_chunk)
@@ -588,6 +640,7 @@ def _hash_existing(
     fp.seek(0)
     _remaining = up_to
     while _remaining > 0:
+        _raise_if_cancelled(what)
         _chunk = fp.read(min(chunk_size, _remaining))
         if not _chunk:
             raise PartialDownload(
