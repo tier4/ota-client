@@ -165,6 +165,29 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
             return
 
     @classmethod
+    def dump_bootloader_and_rootfs_slots_info(cls) -> str:
+        """Dump both the bootloader and the rootfs slots info, for logging.
+
+        The rootfs slot status (retry_count, unbootable) is kept apart from
+            the bootloader slot status, so a rootfs slot that failed to boot
+            only shows up in `nvbootctrl -t rootfs dump-slots-info`.
+
+        Raises:
+            NVBootctrlExecError if the bootloader slots info cannot be dumped.
+                A failure on the rootfs dump is put into the returned string instead.
+        """
+        _chroot = _env.get_dynamic_client_chroot_path()
+        _bootloader = cls.dump_slots_info(chroot=_chroot)
+        try:
+            _rootfs = cls.dump_slots_info(target="rootfs", chroot=_chroot)
+        except NVBootctrlExecError as e:
+            _rootfs = f"<failed: {e.__cause__ or e!r}>"
+        return (
+            f"nvbootctrl dump-slots-info: \n{_bootloader.rstrip()}\n"
+            f"nvbootctrl -t rootfs dump-slots-info: \n{_rootfs.rstrip()}\n"
+        )
+
+    @classmethod
     def verify(cls) -> str | None:  # pragma: no cover
         """Verify the bootloader and rootfs boot."""
         try:
@@ -852,9 +875,7 @@ class _UEFIBootControl:
         )
 
         logger.info("finished jetson-uefi boot control startup")
-        logger.info(
-            f"nvbootctrl dump-slots-info: \n{NVBootctrlJetsonUEFI.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())}"
-        )
+        logger.info(NVBootctrlJetsonUEFI.dump_bootloader_and_rootfs_slots_info())
 
     # API
 

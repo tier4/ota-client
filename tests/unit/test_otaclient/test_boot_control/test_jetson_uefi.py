@@ -134,6 +134,67 @@ slot: 1,             status: normal
         )
         assert NVBootctrlJetsonUEFI.get_active_bootloader_slot() == expected
 
+    _BOOTLOADER_SLOTS_INFO = """\
+Current version: 36.4.0
+Capsule update status: 1
+Current bootloader slot: B
+Active bootloader slot: B
+num_slots: 2
+slot: 0,             status: normal
+slot: 1,             status: normal
+"""
+    _ROOTFS_SLOTS_INFO = """\
+Current rootfs slot: B
+Active rootfs slot: B
+num_slots: 2
+slot: 0,             retry_count: 0,             status: unbootable
+slot: 1,             retry_count: 3,             status: normal
+"""
+
+    def test_dump_bootloader_and_rootfs_slots_info(self, mocker: MockerFixture):
+        def _dump_slots_info(*, target=None, chroot=None):
+            return (
+                self._ROOTFS_SLOTS_INFO
+                if target == "rootfs"
+                else self._BOOTLOADER_SLOTS_INFO
+            )
+
+        mocker.patch.object(NVBootctrlJetsonUEFI, "dump_slots_info", _dump_slots_info)
+
+        assert NVBootctrlJetsonUEFI.dump_bootloader_and_rootfs_slots_info() == (
+            f"nvbootctrl dump-slots-info: \n{self._BOOTLOADER_SLOTS_INFO}"
+            f"nvbootctrl -t rootfs dump-slots-info: \n{self._ROOTFS_SLOTS_INFO}"
+        )
+
+    def test_dump_bootloader_and_rootfs_slots_info_rootfs_failed(
+        self, mocker: MockerFixture
+    ):
+        def _dump_slots_info(*, target=None, chroot=None):
+            if target == "rootfs":
+                raise NVBootctrlExecError("rootfs dump failed")
+            return self._BOOTLOADER_SLOTS_INFO
+
+        mocker.patch.object(NVBootctrlJetsonUEFI, "dump_slots_info", _dump_slots_info)
+
+        _res = NVBootctrlJetsonUEFI.dump_bootloader_and_rootfs_slots_info()
+        assert _res.startswith(
+            f"nvbootctrl dump-slots-info: \n{self._BOOTLOADER_SLOTS_INFO}"
+            "nvbootctrl -t rootfs dump-slots-info: \n<failed: "
+        )
+        assert "rootfs dump failed" in _res
+
+    def test_dump_bootloader_and_rootfs_slots_info_bootloader_failed(
+        self, mocker: MockerFixture
+    ):
+        mocker.patch.object(
+            NVBootctrlJetsonUEFI,
+            "dump_slots_info",
+            mocker.MagicMock(side_effect=NVBootctrlExecError("bootloader dump failed")),
+        )
+
+        with pytest.raises(NVBootctrlExecError):
+            NVBootctrlJetsonUEFI.dump_bootloader_and_rootfs_slots_info()
+
 
 @pytest.mark.parametrize(
     "all_esp_devs, boot_parent_devpath, expected",
