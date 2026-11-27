@@ -78,7 +78,7 @@ class OTAErrorCode(int, Enum):
     E_METADATAJWT_CERT_VERIFICATION_FAILED = 460
     E_METADATAJWT_INVALID = 461
     E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED = 462
-    E_PARAMETER_SET_NOT_APPLICABLE = 463
+    E_OVERLAY_NOT_APPLICABLE = 463
     # client update
     E_CLIENT_UPDATE_SAME_VERSIONS = 470
     # aborted by the requester(client closed request)
@@ -108,8 +108,8 @@ class OTAErrorCode(int, Enum):
     E_UPDATEDELTA_GENERATION_FAILED = 541
     E_APPLY_OTAUPDATE_FAILED = 542
     E_POSTUPDATE_FAILED = 543
-    E_PARAMETER_SET_APPLY_FAILED = 544
-    E_PARAMETER_SET_RESTORE_FAILED = 545
+    E_OVERLAY_APPLY_FAILED = 544
+    E_OVERLAY_RESTORE_FAILED = 545
     # boot control
     E_BOOTCONTROL_STARTUP_ERR = 550
     E_BOOTCONTROL_PREUPDATE_FAILED = 551
@@ -324,28 +324,28 @@ class BootControlBSPVersionCompatibilityFailed(OTAErrorRecoverable):
     failure_description: str = "boot_control BSP version compatibility check failed"
 
 
-class ParameterSetNotApplicable(OTAErrorRecoverable):
-    """A parameter set the image this ECU runs has no room for (an `apply` of the
+class OverlayNotApplicable(OTAErrorRecoverable):
+    """An overlay the image this ECU runs has no room for (an `apply` of the
     image it names is missing there or is in what otaclient or the platform uses for
     itself, a slot's path is a file there or cannot be made there, a slot is over
     what otaclient or the platform uses for itself, or something else is mounted at
     a slot), or one this ECU cannot keep now (the store is not root's alone, the
-    slots share it and the image has no ID to tell its base by, it holds the set of a
-    base the ECU may still fall back to, the boot-time unit is not enabled, or an
+    slots share it and the image has no ID to tell its base by, it holds the overlay
+    of a base the ECU may still fall back to, the boot-time unit is not enabled, or an
     update staged in this boot may have armed the standby slot): the image is fine,
     it does not fit this ECU as it runs. Nothing is changed."""
 
-    failure_errcode: OTAErrorCode = OTAErrorCode.E_PARAMETER_SET_NOT_APPLICABLE
-    failure_description: str = "the parameter set does not fit the image this ECU runs"
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OVERLAY_NOT_APPLICABLE
+    failure_description: str = "the overlay does not fit the image this ECU runs"
 
 
-class ParameterSetApplyFailed(OTAErrorRecoverable):
-    """A parameter set could not be put in place, and the ECU was left with what it
-    had before the update: the parameter set (or none) and the release it reports."""
+class OverlayApplyFailed(OTAErrorRecoverable):
+    """An overlay could not be put in place, and the ECU was left with what it
+    had before the update: the overlay (or none) and the release it reports."""
 
-    failure_errcode: OTAErrorCode = OTAErrorCode.E_PARAMETER_SET_APPLY_FAILED
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OVERLAY_APPLY_FAILED
     failure_description: str = (
-        "failed to apply the parameter set, the ECU keeps what it had before the update"
+        "failed to apply the overlay, the ECU keeps what it had before the update"
     )
 
 
@@ -475,12 +475,12 @@ class PostUpdateFailed(OTAErrorUnrecoverable):
     failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to finish post-update process(persist files, OTA image metadata) on standby slot"
 
 
-class ParameterSetRestoreFailed(OTAErrorUnrecoverable):
-    """A parameter set could not be put in place, and what the ECU had before the
+class OverlayRestoreFailed(OTAErrorUnrecoverable):
+    """An overlay could not be put in place, and what the ECU had before the
     update could not be put back either: its slots or its records may be neither."""
 
-    failure_errcode: OTAErrorCode = OTAErrorCode.E_PARAMETER_SET_RESTORE_FAILED
-    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to apply the parameter set and to put back what the ECU had before the update"
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OVERLAY_RESTORE_FAILED
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to apply the overlay and to put back what the ECU had before the update"
 
 
 #

@@ -32,10 +32,10 @@ from ota_image_libs.v1.image_manifest.schema import (
 )
 from ota_image_libs.v1.media_types import (
     IMAGE_MANIFEST,
-    PARAMETER_SET_ARTIFACT,
+    OVERLAY_ARTIFACT,
     PARTITION_IMAGE_ARTIFACT,
 )
-from ota_image_libs.v1.parameter_set.schema import ParameterSetManifest
+from ota_image_libs.v1.overlay.schema import OverlayManifest
 from ota_image_libs.v1.partition_image.schema import PartitionImageManifest
 
 from ota_metadata.errors import ImageMetadataInvalid
@@ -99,17 +99,17 @@ def test_a_partition_based_payload_for_this_ecu_is_refused_as_such(tmp_path: Pat
         select(_helper)
 
 
-def test_a_parameter_set_for_this_ecu_is_refused_as_such(tmp_path: Path):
-    """A parameter image that reached the file-based updater (its kind could not be
-    told before): refused as a parameter set, not as an image with nothing for it."""
-    _set = _descriptor(
-        ParameterSetManifest.Descriptor,
+def test_an_overlay_for_this_ecu_is_refused_as_such(tmp_path: Path):
+    """An overlay image that reached the file-based updater (its kind could not be
+    told before): refused as an overlay, not as an image with nothing for it."""
+    _overlay = _descriptor(
+        OverlayManifest.Descriptor,
         ecu="autoware",
-        artifact_type=PARAMETER_SET_ARTIFACT,
+        artifact_type=OVERLAY_ARTIFACT,
     )
-    _helper = helper_with(tmp_path, _set)
+    _helper = helper_with(tmp_path, _overlay)
 
-    with pytest.raises(ImageMetadataInvalid, match="is a parameter set"):
+    with pytest.raises(ImageMetadataInvalid, match="is an overlay"):
         select(_helper)
 
 

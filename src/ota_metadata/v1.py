@@ -192,9 +192,9 @@ class OTAImageHelper:
                     f"the payload for {_image_identifier} is partition-based, "
                     "which this ECU, updated file by file, does not apply"
                 )
-            if _image_index.find_parameter_set(_image_identifier) is not None:
+            if _image_index.find_overlay(_image_identifier) is not None:
                 raise ImageMetadataInvalid(
-                    f"the payload for {_image_identifier} is a parameter set, "
+                    f"the payload for {_image_identifier} is an overlay, "
                     "which this update was not routed to"
                 )
             raise ImageMetadataInvalid(

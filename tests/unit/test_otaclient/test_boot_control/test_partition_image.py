@@ -39,7 +39,7 @@ from otaclient.boot_control._partition_image import (
 )
 from otaclient.boot_control.protocol import (
     BootControllerProtocol,
-    ParameterSetBootControllerProtocol,
+    OverlayBootControllerProtocol,
     PartitionLayoutBootControllerProtocol,
 )
 from otaclient.configs import BootloaderType
@@ -236,26 +236,26 @@ class TestStartup:
             make_controller(tmp_path).get_standby_slot_path()
 
 
-class TestParameterSets:
-    """A parameter set is laid over the running slot on this layout as on any other:
+class TestOverlays:
+    """An overlay is laid over the running slot on this layout as on any other:
     this controller keeps the slot's records, the DPI is not asked."""
 
-    def test_it_takes_a_parameter_set(self, tmp_path: Path):
-        assert isinstance(make_controller(tmp_path), ParameterSetBootControllerProtocol)
+    def test_it_takes_an_overlay(self, tmp_path: Path):
+        assert isinstance(make_controller(tmp_path), OverlayBootControllerProtocol)
 
     def test_the_release_of_a_set_is_the_slots_and_a_success(self, tmp_path: Path):
         """In place, after the failure the update recorded while it ran: SUCCESS,
-        with the set's release, also for the otaclient that starts next."""
+        with the overlay's release, also for the otaclient that starts next."""
         _dpi = FakeDPI(version="2.9.0")
         _ctrl = make_controller(tmp_path, _dpi)
         _ctrl.store_failure_info(
             failure_type=FailureType.RECOVERABLE, failure_reason="E544: in progress"
         )
         _detail = VersionDetail(
-            release_name="params", release_id="rid", image_id="parameter-image"
+            release_name="params", release_id="rid", image_id="overlay-image"
         )
 
-        _ctrl.on_parameter_set_applied(version="p-1", version_detail=_detail)
+        _ctrl.on_overlay_applied(version="p-1", version_detail=_detail)
 
         assert _ctrl.load_recorded_version() == ("p-1", _detail)
         _after = make_controller(tmp_path, _dpi)
@@ -275,7 +275,7 @@ class TestParameterSets:
         self, tmp_path: Path, this_boot
     ):
         """A full update that failed after the DPI armed the standby: the next
-        reboot boots the trial, so no set is taken until it has happened."""
+        reboot boots the trial, so no overlay is taken until it has happened."""
         _ctrl = make_controller(tmp_path)
         assert _ctrl.standby_armed_in_this_boot() is False
         _ctrl.pre_update(standby_as_ref=False, erase_standby=True)
@@ -290,8 +290,8 @@ class TestParameterSets:
     def test_a_dropped_set_gives_the_slot_its_base_records_back(self, tmp_path: Path):
         _ctrl = make_controller(tmp_path)
         _base = VersionDetail(release_name="3.0.0", release_id="r", image_id="base")
-        _ctrl.on_parameter_set_applied(
-            version="p-1", version_detail=VersionDetail(image_id="parameter-image")
+        _ctrl.on_overlay_applied(
+            version="p-1", version_detail=VersionDetail(image_id="overlay-image")
         )
 
         _ctrl.restore_recorded_version(version="3.0.0", version_detail=_base)
@@ -759,7 +759,7 @@ class TestFinalizing:
         assert _info is not None and "a bug" in _info[1]
 
     def test_the_same_slot_is_rebooted_through_the_dpi_too(self, tmp_path: Path, host):
-        """What a parameter set whose changed slot's apply is `reboot` ends with:
+        """What an overlay whose changed slot's apply is `reboot` ends with:
         nothing is armed, and the DPI's reboot boots the committed slot again; a
         plain reboot of the guest does not come back on DriveOS."""
         _ctrl = make_controller(
@@ -777,10 +777,10 @@ class TestFinalizing:
     def test_a_dpi_that_does_not_reboot_the_same_slot_leaves_the_set_a_success(
         self, tmp_path: Path, host, caplog: pytest.LogCaptureFixture
     ):
-        """Exit 1, as for any reboot that cannot be requested; the set is in place
+        """Exit 1, as for any reboot that cannot be requested; the overlay is in place
         and its SUCCESS recorded, and stays so: it takes effect at the next reboot."""
         _ctrl = make_controller(tmp_path, FakeDPI(reboot_error="refused", calls=host))
-        _ctrl.on_parameter_set_applied(version="p-1", version_detail=None)
+        _ctrl.on_overlay_applied(version="p-1", version_detail=None)
 
         with caplog.at_level(logging.ERROR, logger=_partition_image.__name__):
             with pytest.raises(SystemExit) as _exit:

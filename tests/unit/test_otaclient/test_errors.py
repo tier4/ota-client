@@ -90,7 +90,7 @@ class TestErrorCodeDefinition:
             "MetadataJWTVerficationFailed",
             "MetadataJWTInvalid",
             "BootControlBSPVersionCompatibilityFailed",
-            "ParameterSetNotApplicable",
+            "OverlayNotApplicable",
             "ClientUpdateSameVersions",
             "OTAAbortSignal",
         }

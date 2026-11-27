@@ -268,7 +268,7 @@ class OTAStatusFilesControl:
         self, *, version: str, version_detail: Optional[VersionDetail]
     ) -> None:
         """Rewrite the current slot's version records in place: what an update that
-        does not switch slots (a parameter set) changes."""
+        does not switch slots (an overlay) changes."""
         write_str_to_file_atomic(
             self.current_ota_status_dir / cfg.OTA_VERSION_FNAME, version
         )
@@ -277,10 +277,10 @@ class OTAStatusFilesControl:
         else:
             _store_version_detail(self.current_ota_status_dir, version_detail)
 
-    def on_parameter_set_applied(
+    def on_overlay_applied(
         self, *, version: str, version_detail: Optional[VersionDetail]
     ) -> None:
-        """A parameter set is in place on the current slot: its release is the slot's,
+        """An overlay is in place on the current slot: its release is the slot's,
         and the slot's status is SUCCESS, with no failure left over."""
         self.store_current_version(version=version, version_detail=version_detail)
         self._store_current_status(OTAStatus.SUCCESS)

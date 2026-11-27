@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The current slot's records, as a parameter set (no slot switch) rewrites them."""
+"""The current slot's records, as an overlay (no slot switch) rewrites them."""
 
 from __future__ import annotations
 
@@ -47,10 +47,10 @@ def control(tmp_path: Path) -> OTAStatusFilesControl:
     )
 
 
-def test_a_set_applied_makes_the_slot_success_with_its_release(
+def test_an_overlay_applied_makes_the_slot_success_with_its_release(
     control: OTAStatusFilesControl,
 ):
-    control.on_parameter_set_applied(version="2026.10.29-1", version_detail=DETAIL)
+    control.on_overlay_applied(version="2026.10.29-1", version_detail=DETAIL)
 
     _dir = control.current_ota_status_dir
     assert (_dir / "status").read_text() == OTAStatus.SUCCESS.name
@@ -63,12 +63,12 @@ def test_a_set_applied_makes_the_slot_success_with_its_release(
 
 
 def test_a_release_without_detail_leaves_no_old_detail(control: OTAStatusFilesControl):
-    control.on_parameter_set_applied(version="2026.10.29-1", version_detail=None)
+    control.on_overlay_applied(version="2026.10.29-1", version_detail=None)
     assert control.load_active_slot_version_detail() is None
 
 
 def test_the_base_records_come_back(control: OTAStatusFilesControl):
-    control.on_parameter_set_applied(version="2026.10.29-1", version_detail=DETAIL)
+    control.on_overlay_applied(version="2026.10.29-1", version_detail=DETAIL)
     _base = VersionDetail(release_name="base", release_id="b", image_id="base")
     control.store_current_version(version="1.0.0", version_detail=_base)
     assert control.load_active_slot_version() == "1.0.0"

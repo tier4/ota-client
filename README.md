@@ -10,7 +10,7 @@ It is designed to work with web.auto FMS OTA component.
 ## Features
 
 - A/B partition update with support for generic x86_64 device, NVIDIA Jetson series based devices and Raspberry Pi
-- Parameter sets: a few directories of the running rootfs replaced without writing the standby slot or rebooting (file-based and partition-based layouts, see [docs/parameter_set.md](docs/parameter_set.md))
+- Overlays: a few directories of the running rootfs replaced without writing the standby slot or rebooting (file-based and partition-based layouts, see [docs/overlay.md](docs/overlay.md))
 - A/B update of the partition contract layouts (`bootloader: grub-verity` on x86_64, `jetson-dpi` on NVIDIA Jetson, `driveos-dpi` on NVIDIA DRIVE), where the platform's DPI writes the slots as partition images (on DriveOS, hands NVIDIA DRIVE Update the package that does) and otaclient drives it
 - Full Rootfs update, with delta update support.
 - Local delta calculation, allowing update to any version of OTA image without the need of a pre-generated delta OTA
@@ -40,7 +40,7 @@ Sample configuration files are available in the [`samples/`](samples/) directory
 - `ecu_info.yaml` - ECU information configuration
 - `proxy_info.yaml` - Proxy settings
 - `otaclient.service` - systemd service file
-- `otaclient-parameter-set.service_app` - systemd unit that mounts the applied parameter set at boot, for the app image (see [docs/parameter_set.md](docs/parameter_set.md))
+- `otaclient-overlay.service_app` - systemd unit that mounts the applied overlay at boot, for the app image (see [docs/overlay.md](docs/overlay.md))
 
 `ecu_info.yaml` and `proxy_info.yaml` are installed at `/boot/ota/`. At each OTA, the copies in the OTA image's `/boot/ota/` replace them:
 

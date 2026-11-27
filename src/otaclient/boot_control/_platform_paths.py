@@ -14,7 +14,7 @@
 """Where otaclient and the OTA platform keep their things, outside the slots' files.
 
 The partition-based layout's boot control keeps its state and stages its payloads
-here; a parameter set's slot must hide none of it. Kept apart from that boot control,
+here; an overlay's slot must hide none of it. Kept apart from that boot control,
 so that what refuses such a slot does not import it.
 """
 
@@ -96,8 +96,8 @@ def _resolve_on(host_root: str, path: str) -> str | None:
 def platform_reserved_paths(
     *, dpi_executable: str | None = None, host_root: str = "/"
 ) -> tuple[str, ...]:
-    """What otaclient and the platform keep outside the slots' own files, which a
-    parameter set's slot must not hide: otaclient's status directories (with the boot
+    """What otaclient and the platform keep outside the slots' own files, which an
+    overlay's slot must not hide: otaclient's status directories (with the boot
     an update was staged in) and staging directory of every device side, the OTA
     platform's and the DPI's paths, and the DPI this ECU names (`dpi_executable`):
     as named, and the file it resolves to on the host at `host_root` with the

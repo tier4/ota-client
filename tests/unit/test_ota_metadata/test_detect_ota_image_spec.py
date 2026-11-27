@@ -29,7 +29,7 @@ from pytest_mock import MockerFixture
 from ota_metadata.utils import detect_ota_image_ver
 from ota_metadata.utils.detect_ota_image_ver import (
     check_if_ota_image_v1,
-    has_parameter_set_for,
+    has_overlay_for,
 )
 from otaclient_common.downloader import DownloaderPool
 
@@ -111,7 +111,7 @@ def test_check_if_ota_image_v1_retries_then_gives_up(
 
 
 #
-# ------ a parameter set as the ECU's payload ------ #
+# ------ an overlay as the ECU's payload ------ #
 #
 
 THIS_ECU = ImageIdentifier("autoware", OTAReleaseKey.dev)
@@ -151,18 +151,18 @@ def _index_response(mocker, status=HTTPStatus.OK, body: bytes = b""):
     "artifact_type, ecu, expected",
     (
         pytest.param(
-            "application/vnd.tier4.ota.parameter-set.v1", THIS_ECU, True, id="set"
+            "application/vnd.tier4.ota.overlay.v1", THIS_ECU, True, id="overlay"
         ),
         pytest.param(None, THIS_ECU, False, id="file_based"),
         pytest.param(
-            "application/vnd.tier4.ota.parameter-set.v1",
+            "application/vnd.tier4.ota.overlay.v1",
             ImageIdentifier("perception", OTAReleaseKey.dev),
             False,
-            id="another_ecus_set",
+            id="another_ecus_overlay",
         ),
     ),
 )
-def test_has_parameter_set_for(
+def test_has_overlay_for(
     artifact_type, ecu, expected, mock_downloader_pool, mocker: MockerFixture
 ):
     """The payload kind of the ECU's entry picks the updater."""
@@ -172,7 +172,7 @@ def test_has_parameter_set_for(
     )
 
     assert (
-        has_parameter_set_for("https://example.com/ota", ecu, downloader_pool=pool)
+        has_overlay_for("https://example.com/ota", ecu, downloader_pool=pool)
         is expected
     )
     assert (
@@ -190,7 +190,7 @@ def test_has_parameter_set_for(
         pytest.param({"body": b"{not an index"}, id="not_an_index"),
     ),
 )
-def test_has_parameter_set_for_gives_up_at_once_on_what_will_not_pass(
+def test_has_overlay_for_gives_up_at_once_on_what_will_not_pass(
     response, mock_downloader_pool, mocker: MockerFixture
 ):
     """The updater the image would have gone to anyway reports what is wrong."""
@@ -199,14 +199,14 @@ def test_has_parameter_set_for_gives_up_at_once_on_what_will_not_pass(
     downloader._session.get.return_value = _index_response(mocker, **response)
 
     assert (
-        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        has_overlay_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
         is False
     )
     assert downloader._session.get.call_count == 1
     _sleep.assert_not_called()
 
 
-def test_has_parameter_set_for_retries_what_may_pass(
+def test_has_overlay_for_retries_what_may_pass(
     mock_downloader_pool, mocker: MockerFixture
 ):
     pool, downloader = mock_downloader_pool
@@ -216,32 +216,32 @@ def test_has_parameter_set_for_retries_what_may_pass(
         ConnectionError("the link dropped"),
         _index_response(
             mocker,
-            body=_index_text("application/vnd.tier4.ota.parameter-set.v1").encode(),
+            body=_index_text("application/vnd.tier4.ota.overlay.v1").encode(),
         ),
     ]
     assert (
-        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        has_overlay_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
         is True
     )
 
 
-def test_has_parameter_set_for_does_not_read_more_than_an_index(
+def test_has_overlay_for_does_not_read_more_than_an_index(
     mock_downloader_pool, mocker: MockerFixture
 ):
-    """A body past the bound is not taken, even a valid index of a set."""
+    """A body past the bound is not taken, even a valid index of an overlay."""
     pool, downloader = mock_downloader_pool
-    _body = _index_text("application/vnd.tier4.ota.parameter-set.v1").encode()
+    _body = _index_text("application/vnd.tier4.ota.overlay.v1").encode()
     mocker.patch(f"{MODULE}.INDEX_MAX_SIZE", len(_body) - 1)
     _resp = _index_response(mocker, body=_body)
     downloader._session.get.return_value = _resp
     assert (
-        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        has_overlay_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
         is False
     )
     _resp.raw.read.assert_called_once_with(len(_body), decode_content=True)
 
 
-def test_has_parameter_set_for_cannot_tell_once_the_retries_are_spent(
+def test_has_overlay_for_cannot_tell_once_the_retries_are_spent(
     mock_downloader_pool, mocker: MockerFixture
 ):
     """The caller reports a failed download instead of guessing the kind."""
@@ -251,7 +251,7 @@ def test_has_parameter_set_for_cannot_tell_once_the_retries_are_spent(
         mocker, status=HTTPStatus.SERVICE_UNAVAILABLE
     )
     assert (
-        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        has_overlay_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
         is None
     )
     assert downloader._session.get.call_count == detect_ota_image_ver.RETRY_TIMES

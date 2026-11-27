@@ -45,7 +45,7 @@ from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
 from otaclient.ota_core import _download_bsp_version_file
-from otaclient.parameter_set import ParameterSetStore
+from otaclient.overlay import OverlayStore
 from otaclient_common import (
     _env,
     human_readable_size,
@@ -327,10 +327,10 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             )
 
         self._preserve_ota_image_meta_at_post_update()
-        # the new slot starts with its base's defaults: a parameter set applied here
+        # the new slot starts with its base's defaults: an overlay applied here
         #   stays behind, and the history says so (copied along when the store is
         #   on this slot's own filesystem, where it is when the slots share it)
-        ParameterSetStore().carry_history_to(
+        OverlayStore().carry_history_to(
             self._standby_slot_mp, to_version=self.update_version
         )
         # NOTE(20250823): secure the resource dir and metadata dir

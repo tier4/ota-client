@@ -104,9 +104,9 @@ class Consts:
     IMAGE_META_DPATH = "/opt/ota/image-meta"
     # the version file Web.Auto writes into the rootfs of the OTA images it builds
     IMAGE_VERSION_FILE_FPATH = "/usr/share/ota/version.json"
-    # parameter sets laid over the running base (spec: ota-image-libs parameter_set.md),
+    # overlays laid over the running base (spec: ota-image-libs overlay.md),
     #   on the one place every layout can write and keep, a read-only root included
-    PARAMETER_SET_DPATH = "/opt/data/ota/parameter-set"
+    OVERLAY_DPATH = "/opt/data/ota/overlay"
 
     BOOT_DPATH = "/boot"
     EFI_DPATH = "/boot/efi"

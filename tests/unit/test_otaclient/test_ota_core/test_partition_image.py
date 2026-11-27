@@ -1227,7 +1227,7 @@ def reports(updater: OTAUpdaterForPartitionImage) -> list:
 class TestExecute:
     """The whole update, from the verified index to the reboot."""
 
-    def test_a_parameter_set_stays_behind_in_the_store_on_optdata(
+    def test_an_overlay_stays_behind_in_the_store_on_optdata(
         self,
         tmp_path: Path,
         pool,
@@ -1237,13 +1237,13 @@ class TestExecute:
         mocker,
     ):
         """The new slot is written as an image: the store, on the partition the
-        slots share, keeps the set, says it stays behind and marks the full update
+        slots share, keeps the overlay, says it stays behind and marks the full update
         staged, before the standby is recorded as the one to boot."""
         _served, _ = serve_an_image(tmp_path / "served", config(rootfs(), boot()))
         server(_served)
         index_verified_from(_served)
         _store = mocker.MagicMock()
-        mocker.patch.object(_mod, "ParameterSetStore", return_value=_store)
+        mocker.patch.object(_mod, "OverlayStore", return_value=_store)
         _updater = make_full_updater(tmp_path, pool=pool)
         _post_update = mocker.spy(_updater._boot_controller, "post_update")
         _order = mocker.MagicMock()

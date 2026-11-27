@@ -99,12 +99,12 @@ def with_image_id(image_id: object) -> dict:
 
 
 @pytest.fixture(autouse=True)
-def no_parameter_set_applied(mocker: MockerFixture):
+def no_overlay_applied(mocker: MockerFixture):
     """The store is the running slot's /opt: never read here unless a test says so."""
     _store = mocker.MagicMock()
     _store.why_not_trusted.return_value = None
-    _store.whose_set.return_value = (None, None)
-    mocker.patch.object(_image_version_file, "ParameterSetStore", return_value=_store)
+    _store.whose_overlay.return_value = (None, None)
+    mocker.patch.object(_image_version_file, "OverlayStore", return_value=_store)
 
 
 class TestTheImagesVersionFile:
@@ -285,15 +285,15 @@ class TestTheRunningSlotsDetail:
         assert resolve_active_slot_version_detail(status_control) is None
 
 
-class TestTheReleaseOfAParameterSet:
-    """A parameter set changes the slots, not the image: its release names the
-    parameter image's ID, which the running image's version file does not."""
+class TestTheReleaseOfAnOverlay:
+    """An overlay changes the slots, not the image: its release names the
+    overlay image's ID, which the running image's version file does not."""
 
     @pytest.fixture
-    def recorded_parameter_release(self, mocker: MockerFixture):
+    def recorded_overlay_release(self, mocker: MockerFixture):
         _ctrl = mocker.MagicMock(spec=OTAStatusFilesControl)
         _ctrl.load_active_slot_version_detail.return_value = VersionDetail(
-            release_name="params", release_id="rid", image_id="parameter-image"
+            release_name="params", release_id="rid", image_id="overlay-image"
         )
         mocker.patch.object(
             _image_version_file,
@@ -304,43 +304,41 @@ class TestTheReleaseOfAParameterSet:
 
     def applied(self, mocker: MockerFixture, record, *, trusted: bool = True) -> None:
         """The store holds `record`: the running base's when it was applied over the
-        running image (`whose_set` tells), laid when the store is trusted."""
+        running image (`whose_overlay` tells), laid when the store is trusted."""
         _store = mocker.MagicMock()
         _store.why_not_trusted.return_value = None if trusted else "not root's"
-        _store.whose_set.side_effect = lambda running_image_id: (
+        _store.whose_overlay.side_effect = lambda running_image_id: (
             record,
             None
             if record is None or record.base_image_id == running_image_id
             else "applied on another image",
         )
-        mocker.patch.object(
-            _image_version_file, "ParameterSetStore", return_value=_store
-        )
+        mocker.patch.object(_image_version_file, "OverlayStore", return_value=_store)
 
     def test_the_release_of_the_set_applied_over_this_image_is_kept(
-        self, mocker: MockerFixture, recorded_parameter_release
+        self, mocker: MockerFixture, recorded_overlay_release
     ):
         self.applied(
             mocker,
-            mocker.MagicMock(image_id="parameter-image", base_image_id=IMAGE_ID),
+            mocker.MagicMock(image_id="overlay-image", base_image_id=IMAGE_ID),
         )
         assert resolve_active_slot_version_detail(
-            recorded_parameter_release
+            recorded_overlay_release
         ) == VersionDetail(
-            release_name="params", release_id="rid", image_id="parameter-image"
+            release_name="params", release_id="rid", image_id="overlay-image"
         )
 
     def test_a_set_in_a_store_not_trusted_is_not_reported(
-        self, mocker: MockerFixture, recorded_parameter_release
+        self, mocker: MockerFixture, recorded_overlay_release
     ):
         """Nothing is laid from it: the slot reports its base."""
         self.applied(
             mocker,
-            mocker.MagicMock(image_id="parameter-image", base_image_id=IMAGE_ID),
+            mocker.MagicMock(image_id="overlay-image", base_image_id=IMAGE_ID),
             trusted=False,
         )
         assert resolve_active_slot_version_detail(
-            recorded_parameter_release
+            recorded_overlay_release
         ) == VersionDetail(image_id=IMAGE_ID)
 
     @pytest.mark.parametrize(
@@ -348,19 +346,19 @@ class TestTheReleaseOfAParameterSet:
         (
             pytest.param(None, id="no_set_applied"),
             pytest.param(
-                {"image_id": "parameter-image", "base_image_id": "another-base"},
+                {"image_id": "overlay-image", "base_image_id": "another-base"},
                 id="applied_over_another_image",
             ),
             pytest.param(
-                {"image_id": "another-parameter-image", "base_image_id": IMAGE_ID},
-                id="another_set",
+                {"image_id": "another-overlay-image", "base_image_id": IMAGE_ID},
+                id="another_overlay",
             ),
         ),
     )
     def test_otherwise_the_record_of_another_image_loses_its_release(
-        self, mocker: MockerFixture, recorded_parameter_release, record
+        self, mocker: MockerFixture, recorded_overlay_release, record
     ):
         self.applied(mocker, mocker.MagicMock(**record) if record else None)
         assert resolve_active_slot_version_detail(
-            recorded_parameter_release
+            recorded_overlay_release
         ) == VersionDetail(image_id=IMAGE_ID)

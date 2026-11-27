@@ -38,7 +38,7 @@ from ota_metadata.utils.cert_store import (
 )
 from ota_metadata.utils.detect_ota_image_ver import (
     check_if_ota_image_v1,
-    has_parameter_set_for,
+    has_overlay_for,
 )
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
@@ -69,21 +69,21 @@ from otaclient._utils import (
 from otaclient.boot_control import get_boot_controller
 from otaclient.boot_control._image_version_file import running_image_id
 from otaclient.boot_control.protocol import (
-    ParameterSetBootControllerProtocol,
+    OverlayBootControllerProtocol,
     PartitionLayoutBootControllerProtocol,
 )
 from otaclient.configs._cfg_consts import StorageDeviceType
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAImageFormat, OTAMetricsData
 from otaclient.ota_core._common import create_downloader_pool
-from otaclient.ota_core._parameter_set import OTAUpdaterForParameterSet
+from otaclient.ota_core._overlay import OTAUpdaterForOverlay
 from otaclient.ota_core._partition_image import OTAUpdaterForPartitionImage
 from otaclient.ota_core._updater import (
     OTAUpdaterForLegacyOTAImage,
     OTAUpdaterForOTAImageV1,
 )
 from otaclient.ota_core._updater_base import OTAUpdateInterfaceArgs
-from otaclient.parameter_set import ParameterSetStore
+from otaclient.overlay import OverlayStore
 from otaclient_common import _env
 from otaclient_common._shm import RWBusy
 from otaclient_common.cmdhelper import (
@@ -244,11 +244,11 @@ class OTAClient:
                 "previous OTA was aborted, report ABORTED for "
                 f"{ABORTED_STATUS_REPORT_DURATION}s before reporting INITIALIZED"
             )
-        # a parameter set was mounted at boot by the boot-time unit: it is checked
+        # an overlay was mounted at boot by the boot-time unit: it is checked
         #   here, once the boot controller concluded the boot, and dropped (the slot
         #   reports its base again) if it does not hold
-        if isinstance(self.boot_controller, ParameterSetBootControllerProtocol):
-            _check_parameter_set_at_startup(
+        if isinstance(self.boot_controller, OverlayBootControllerProtocol):
+            _check_overlay_at_startup(
                 self.boot_controller, base_committed=self._base_committed
             )
         self._reload_and_report_current_version()
@@ -401,12 +401,10 @@ class OTAClient:
             )
         )
 
-    def _on_parameter_set_applied(
-        self, request: UpdateRequestV2, *, session_id: str
-    ) -> None:
-        """A parameter set is in place: the update ends here at SUCCESS (and the ECU
+    def _on_overlay_applied(self, request: UpdateRequestV2, *, session_id: str) -> None:
+        """An overlay is in place: the update ends here at SUCCESS (and the ECU
         reboots after this when a changed slot's apply is `reboot`), and the slot now
-        reports the set's release."""
+        reports the overlay's release."""
         self._reload_and_report_current_version()
         self._metrics.current_firmware_version = self.current_version
         self._live_ota_status = OTAStatus.SUCCESS
@@ -417,8 +415,7 @@ class OTAClient:
             )
         )
         logger.info(
-            f"parameter set of release {request.release_name or request.version} "
-            "is in place"
+            f"overlay of release {request.release_name or request.version} is in place"
         )
 
     def update(self, request: UpdateRequestV2) -> None:
@@ -454,7 +451,7 @@ class OTAClient:
         self._metrics.request_id = request_id
         self._metrics.session_id = new_session_id
         url_base = request.url_base
-        _set_in_place = False
+        _overlay_in_place = False
 
         try:
             if self.proxy:
@@ -499,7 +496,7 @@ class OTAClient:
                 )
                 logger.info(f"selecting image payload {image_id} from OTA image")
 
-                _kind = has_parameter_set_for(
+                _kind = has_overlay_for(
                     url_base, image_id, downloader_pool=download_pool
                 )
                 if _kind is None:
@@ -508,20 +505,20 @@ class OTAClient:
                         module=__name__,
                     )
                 if _kind:
-                    # a parameter image: the payload is laid over the running base,
+                    # an overlay image: the payload is laid over the running base,
                     #   the standby slot is not touched and, unless a changed slot's
                     #   apply is `reboot`, nothing reboots
                     if not isinstance(
-                        self.boot_controller, ParameterSetBootControllerProtocol
+                        self.boot_controller, OverlayBootControllerProtocol
                     ):
                         # every boot controller provides it: not reached but by one
-                        #   that does not keep the slot's records for a set
-                        raise ota_errors.ParameterSetNotApplicable(
-                            "the payload is a parameter set, whose release this "
+                        #   that does not keep the slot's records for an overlay
+                        raise ota_errors.OverlayNotApplicable(
+                            "the payload is an overlay, whose release this "
                             "ECU's boot controller cannot record",
                             module=__name__,
                         )
-                    _updater = OTAUpdaterForParameterSet(
+                    _updater = OTAUpdaterForOverlay(
                         ca_store=self.ca_store,
                         abort_handler=self._abort_handler,
                         boot_controller=self.boot_controller,
@@ -530,8 +527,8 @@ class OTAClient:
                         **_common_args,
                     )
                     _reboot = _updater.execute()
-                    self._on_parameter_set_applied(request, session_id=new_session_id)
-                    _set_in_place = True
+                    self._on_overlay_applied(request, session_id=new_session_id)
+                    _overlay_in_place = True
                     if _reboot:
                         _updater.reboot_for_apply()
                 elif isinstance(
@@ -649,13 +646,13 @@ class OTAClient:
                 logger.warning(f"failed to merge metrics: {e!r}")
             self._metrics.publish()
 
-            if _set_in_place and not _env.is_running_as_downloaded_dynamic_app():
-                # a set in place ends the update at SUCCESS without a reboot: the app
-                #   image goes on serving the status API and its otaproxy, which the
+            if _overlay_in_place and not _env.is_running_as_downloaded_dynamic_app():
+                # an overlay in place ends the update at SUCCESS without a reboot: the
+                #   app image goes on serving the status API and its otaproxy, which the
                 #   sub ECUs may be downloading through
-                logger.info("parameter set in place: otaclient keeps running")
+                logger.info("overlay in place: otaclient keeps running")
             else:
-                if _set_in_place:
+                if _overlay_in_place:
                     # the downloaded client steps back for the installed one: not
                     #   before the sub ECUs, which may use this ECU's otaproxy
                     self._wait_for_sub_ecus()
@@ -904,7 +901,7 @@ def _base_committed(booted_ota_status: OTAStatus) -> bool:
     """Whether the running base is committed, as the boot controller concluded this
     boot: booted at SUCCESS or INITIALIZED. At any other status (a trial boot the
     boot controller did not commit, say) the platform may still go back to the base
-    a set in a store the slots share was applied on.
+    an overlay in a store the slots share was applied on.
 
     The downloaded dynamic client's booted status is set to SUCCESS whatever it was:
     it never takes the base as committed, the installed otaclient decided at its
@@ -915,18 +912,18 @@ def _base_committed(booted_ota_status: OTAStatus) -> bool:
     )
 
 
-def _check_parameter_set_at_startup(
-    boot_controller: ParameterSetBootControllerProtocol,
+def _check_overlay_at_startup(
+    boot_controller: OverlayBootControllerProtocol,
     *,
     base_committed: bool,
 ) -> None:
-    """Check the applied parameter set, if any; a dropped one gives the slot its
-    base's version records back. A set of another base is dropped only once the
-    running base is committed (`_base_committed`); until then it is kept, and the
+    """Check the applied overlay, if any; a dropped one gives the slot its
+    base's version records back. An overlay of another base is dropped only once
+    the running base is committed (`_base_committed`); until then it is kept, and the
     base it was applied on lays it again when the platform falls back to it. Never
     raises: otaclient starts either way."""
     try:
-        _store = ParameterSetStore()
+        _store = OverlayStore()
         if not any(
             _d.exists()
             for _d in (_store.applied_dir, _store.previous_dir, _store.discard_dir)
@@ -938,4 +935,4 @@ def _check_parameter_set_at_startup(
             base_committed=base_committed,
         )
     except Exception as e:
-        logger.warning(f"failed to check the parameter set: {e!r}")
+        logger.warning(f"failed to check the overlay: {e!r}")

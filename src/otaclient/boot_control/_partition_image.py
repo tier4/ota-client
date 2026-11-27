@@ -36,10 +36,10 @@ It is the `PartitionLayoutBootControllerProtocol` the partition-image updater ru
 on: the DPI is its installer, and the staging directory is on the persistent storage
 of the device side the DPI reports.
 
-It is also the `ParameterSetBootControllerProtocol` a parameter set is laid over the
-running slot with, as on every layout: the set itself lives on /opt/data, outside
+It is also the `OverlayBootControllerProtocol` an overlay is laid over the
+running slot with, as on every layout: the overlay itself lives on /opt/data, outside
 both slots; this controller keeps the current slot's version records, and reboots the
-same slot through the DPI when a set asks for a reboot.
+same slot through the DPI when an overlay asks for a reboot.
 """
 
 from __future__ import annotations
@@ -133,7 +133,7 @@ class PartitionImageBootController:
     """Boot control for the partition-based layout, driving the DPI.
 
     Implements `BootControllerProtocol`, `PartitionLayoutBootControllerProtocol` and
-    `ParameterSetBootControllerProtocol`.
+    `OverlayBootControllerProtocol`.
     The slot facts come from the DPI rather than from probing here: on grub and L4T
     a slot is a PARTLABEL behind a device-mapper target, on DriveOS a boot chain the
     guest has no device of, and getting that wrong means writing the wrong slot,
@@ -415,7 +415,7 @@ class PartitionImageBootController:
         """Get the persisted failure info if the booted ota_status is FAILURE."""
         return self._ota_status_control.load_booted_failure_info()
 
-    # ------ ParameterSetBootControllerProtocol ------ #
+    # ------ OverlayBootControllerProtocol ------ #
 
     def load_recorded_version(self) -> tuple[str, VersionDetail | None]:
         """The version and version detail the current slot recorded, as recorded:
@@ -425,12 +425,12 @@ class PartitionImageBootController:
             self._ota_status_control.load_active_slot_version_detail(),
         )
 
-    def on_parameter_set_applied(
+    def on_overlay_applied(
         self, *, version: str, version_detail: VersionDetail | None
     ) -> None:
-        """A parameter set is in place on the current slot (no slot switch, the DPI
+        """An overlay is in place on the current slot (no slot switch, the DPI
         not asked): record its release as the slot's, with the status SUCCESS."""
-        self._ota_status_control.on_parameter_set_applied(
+        self._ota_status_control.on_overlay_applied(
             version=version, version_detail=version_detail
         )
 
@@ -438,7 +438,7 @@ class PartitionImageBootController:
         self, *, version: str, version_detail: VersionDetail | None
     ) -> None:
         """Record `version` and `version_detail` as the current slot's again: the
-        base's, when its parameter set is dropped."""
+        base's, when its overlay is dropped."""
         self._ota_status_control.store_current_version(
             version=version, version_detail=version_detail
         )
@@ -456,12 +456,12 @@ class PartitionImageBootController:
     def reboot_current_slot(self) -> NoReturn:
         """Reboot into the slot that runs now, through the DPI, as every reboot on
         this layout: a plain reboot of the guest does not come back on DriveOS. No
-        slot is armed (a parameter set stages nothing), so the DPI's reboot boots the
+        slot is armed (an overlay stages nothing), so the DPI's reboot boots the
         committed slot again.
 
         As `finalizing_update`: synced first, exit 1 when the DPI does not get the
         reboot under way, else waited out until the shutdown terminates this
-        process. No failure is recorded: the set is in place and its SUCCESS
+        process. No failure is recorded: the overlay is in place and its SUCCESS
         recorded, it takes effect at whichever reboot comes next.
         """
         logger.info("rebooting the running slot, through the DPI...")

@@ -73,10 +73,10 @@ class _OTAClientSettings(BaseModel):
     CLIENT_UPDATE_TIMEOUT: int = 5 * 60  # seconds
 
     #
-    # ------ parameter set settings ------ #
+    # ------ overlay settings ------ #
     #
-    PARAMETER_SET_MAX_SIZE: int = 512 * 1024**2  # bytes a set may unpack to
-    PARAMETER_SET_APPLY_TIMEOUT: int = 5 * 60  # seconds a slot's `apply` may take
+    OVERLAY_MAX_SIZE: int = 512 * 1024**2  # bytes an overlay may unpack to
+    OVERLAY_APPLY_TIMEOUT: int = 5 * 60  # seconds a slot's `apply` may take
 
     #
     # ------ create standby settings ------ #
