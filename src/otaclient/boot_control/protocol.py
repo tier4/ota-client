@@ -207,14 +207,14 @@ class PartitionLayoutBootControllerProtocol(Protocol):
 
 
 @runtime_checkable
-class ParameterSetBootControllerProtocol(Protocol):
-    """What a boot controller provides, beside BootControllerProtocol, for a
-        parameter set: the current slot's version records, rewritten in place, as a
-        set is laid over the running slot without a slot switch, and the reboot of
-        that same slot a set may end with.
+class OverlayBootControllerProtocol(Protocol):
+    """What a boot controller provides, beside BootControllerProtocol, for an
+        overlay: the current slot's version records, rewritten in place, as an
+        overlay is laid over the running slot without a slot switch, and the reboot
+        of that same slot an overlay may end with.
 
     Every boot controller provides it, the file-based and the partition-based
-        layouts alike: the set itself is laid the same way on all of them.
+        layouts alike: the overlay itself is laid the same way on all of them.
     """
 
     @abstractmethod
@@ -228,10 +228,10 @@ class ParameterSetBootControllerProtocol(Protocol):
         """Record `version` and `version_detail` as the current slot's again."""
 
     @abstractmethod
-    def on_parameter_set_applied(
+    def on_overlay_applied(
         self, *, version: str, version_detail: VersionDetail | None
     ) -> None:
-        """A parameter set is in place: its release is the current slot's, SUCCESS."""
+        """An overlay is in place: its release is the current slot's, SUCCESS."""
 
     @abstractmethod
     def store_failure_info(
@@ -243,13 +243,13 @@ class ParameterSetBootControllerProtocol(Protocol):
     def standby_armed_in_this_boot(self) -> bool:
         """Whether an update staged in this boot may have armed the standby slot for
         a trial boot (a full update that failed after that): any reboot from
-        now on may boot it, so no parameter set is taken until one has
+        now on may boot it, so no overlay is taken until one has
         happened."""
 
     @abstractmethod
     def reboot_current_slot(self) -> NoReturn:
-        """Reboot into the slot that runs now, with no slot switch: what a parameter
-            set whose changed slot's `apply` is `reboot` ends with, once its SUCCESS is
+        """Reboot into the slot that runs now, with no slot switch: what an overlay
+            whose changed slot's `apply` is `reboot` ends with, once its SUCCESS is
             reported.
 
         Does not return, as `finalizing_update`: the reboot is requested and this

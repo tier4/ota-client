@@ -83,11 +83,11 @@ class TestPostUpdateOTAConfigFiles:
         mocker.patch(f"{_updater.__name__}.ecu_info", self.ecu_info)
         _resource_dir = tmp_path / "resource_dir"
         _resource_dir.mkdir()
-        # the running slot's parameter set store is not the host's
-        self.parameter_set_store = mocker.MagicMock()
+        # the running slot's overlay store is not the host's
+        self.overlay_store = mocker.MagicMock()
         mocker.patch(
-            f"{_updater.__name__}.ParameterSetStore",
-            return_value=self.parameter_set_store,
+            f"{_updater.__name__}.OverlayStore",
+            return_value=self.overlay_store,
         )
         return SimpleNamespace(
             _status_report_queue=Queue(),
@@ -140,8 +140,8 @@ class TestPostUpdateOTAConfigFiles:
         updater._boot_controller.post_update.assert_called_once_with(
             "2.0.0", version_detail=None, ota_config_files=expected
         )
-        # the new slot gets the history of the parameter sets, not the set
-        self.parameter_set_store.carry_history_to.assert_called_once_with(
+        # the new slot gets the overlay history, not the overlay
+        self.overlay_store.carry_history_to.assert_called_once_with(
             updater._standby_slot_mp, to_version="2.0.0"
         )
 

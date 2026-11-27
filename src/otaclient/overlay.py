@@ -11,19 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Parameter sets laid over the running base (spec: ota-image-libs parameter_set.md).
+"""Overlays laid over the running base (spec: ota-image-libs overlay.md).
 
-A parameter set names directories of the running base (its slots) and replaces them,
+An overlay names directories of the running base (its slots) and replaces them,
 without a standby slot and without a reboot (unless a changed slot's `apply` is
-`reboot`). Its files are unpacked into the store, and each slot the set fills is bound
-read-only over the base's directory: now, by a mount, and at every boot, by
-`otaclient mount-parameter-set` (`mount_parameter_set_command`), run by a unit ordered
-before local-fs.target, so that the slot holds the set before anything that reads it
+`reboot`). Its files are unpacked into the store, and each slot the overlay fills is
+bound read-only over the base's directory: now, by a mount, and at every boot, by
+`otaclient mount-overlay` (`mount_overlay_command`), run by a unit ordered before
+local-fs.target, so that the slot holds the overlay before anything that reads it
 starts. The base's own files are never written, only hidden; a slot directory the base
-does not have is made (empty) as the mount point. A set names no base: it is applied
-on whatever base the ECU runs, as long as that base has room for its slots and the
-applies it does not carry itself (an `apply` inside the set's slots is the set's own
-file).
+does not have is made (empty) as the mount point. An overlay names no base: it is
+applied on whatever base the ECU runs, as long as that base has room for its slots and
+the applies it does not carry itself (an `apply` inside the overlay's slots is the
+overlay's own file).
 
 The store is on /opt/data, the one place every layout can write and keep (a
 partition-based layout's root is read-only), and the same mechanism serves every
@@ -32,56 +32,57 @@ image does not have cannot be made there) and what the boot controller does (its
 records, and how the same slot is rebooted).
 
 A slot's mount is taken away lazily, so that a program running from the slot's files
-keeps them until it exits. The `apply` of a slot runs once the slot holds a set's new
-contents; nothing runs when a slot is taken away (an empty set, a set without that
-slot, a set dropped): that takes effect when what reads the slot restarts.
+keeps them until it exits. The `apply` of a slot runs once the slot holds an overlay's
+new contents; nothing runs when a slot is taken away (an empty overlay, an overlay
+without that slot, an overlay dropped): that takes effect when what reads the slot
+restarts.
 
-The store, under PARAMETER_SET_DPATH::
+The store, under OVERLAY_DPATH::
 
-    applied/        the set this slot runs with
+    applied/        the overlay this slot runs with
       record.json   what it is, and what it was applied on (AppliedRecord); read by
-                    others too, see docs/parameter_set.md
+                    others too, see docs/overlay.md
       files.json    the files otaclient unpacked and checked, what is checked again
-      manifest.json, config.json   the set's own metadata, as downloaded
+      manifest.json, config.json   the overlay's own metadata, as downloaded
       tree/<path>   the slots' files, at their paths relative to /
-    previous/       the set before, kept until the new one is recorded as the slot's
-    discard/        the set before, being deleted once the new one is recorded
-    staging/        a set being prepared
+    previous/       the overlay before, kept until the new one is recorded as the slot's
+    discard/        the overlay before, being deleted once the new one is recorded
+    staging/        an overlay being prepared
     history.jsonl   the evidence: one JSON object per line, per event
     last-running-boot   what was last recorded as running, so that it is once per boot
 
-A switch is two-phase: the new set is put in place with the old one kept as
+A switch is two-phase: the new overlay is put in place with the old one kept as
 `previous/`, and only once the slot records the new release is `previous/` dropped
 (`commit`, by one rename to `discard/`). A `previous/` found at startup is a switch
-that did not finish: it is completed when the slot already records the applied set's
+that did not finish: it is completed when the slot already records the applied overlay's
 release, and rolled back otherwise. Every step renames before it mounts: `applied/` is
 always what is to be mounted, which is all the boot reads; a `previous/` there, the
 boot mounts nothing and leaves the switch to otaclient's start.
 
 What the ECU runs changes by an update only. Unpacked files found other than the
-set's at startup are kept as they are and recorded (`tree_mismatch`); the next update
-of the set puts its files in place again and applies every slot. A set is dropped
-only when it cannot be told what it is (its record is unreadable), when it is not the
-running base's (`whose_set`: applied on another image, by the image's version file,
-or another slot of the same image), or when a slot cannot be mounted. One that is not
-the running base's, or that cannot be told, is never laid, and is dropped only once
-the running base is committed: a trial boot of a new base over a store the slots
-share may still fall back to the base the set was applied on, which lays it again.
-Nor is it the set before when a new set is applied: one is refused until the running
-base is committed, and then the other base's set is replaced.
+overlay's at startup are kept as they are and recorded (`tree_mismatch`); the next
+update of the overlay puts its files in place again and applies every slot. An overlay
+is dropped only when it cannot be told what it is (its record is unreadable), when it is
+not the running base's (`whose_overlay`: applied on another image, by the image's
+version file, or another slot of the same image), or when a slot cannot be mounted. One
+that is not the running base's, or that cannot be told, is never laid, and is dropped
+only once the running base is committed: a trial boot of a new base over a store the
+slots share may still fall back to the base the overlay was applied on, which lays it
+again. Nor is it the overlay before when a new overlay is applied: one is refused until
+the running base is committed, and then the other base's overlay is replaced.
 
 Nothing is laid from, stored into, recorded in or deleted from a store whose way
 from its mount point is not root's alone (`why_not_private`): another user who can
-rename a directory on it could plant a set whose `apply` runs as root.
+rename a directory on it could plant an overlay whose `apply` runs as root.
 
 A full OTA writes a new slot from an image, and the new base runs with its slots'
 defaults. A store on the slot's own root filesystem is not carried over (not even by
-the persist files): only the history is, with a line saying the set was left behind.
+the persist files): only the history is, with a line saying the overlay was left behind.
 A store on a filesystem of its own (a partition shared by both slots) stays where it
 is, with that line and a mark that a full update was staged, and the new slot's
-otaclient drops the set once the new base is committed: it was applied on another
+otaclient drops the overlay once the new base is committed: it was applied on another
 image, or on another slot of the same image (the slot's records tell). Such a store
-needs the base's image ID to tell bases apart: a new set is refused on a base
+needs the base's image ID to tell bases apart: a new overlay is refused on a base
 without one.
 """
 
@@ -100,11 +101,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ota_image_libs.common.oci_spec import Sha256Digest
-from ota_image_libs.v1.parameter_set.schema import ParameterSetFileEntry
-from ota_image_libs.v1.parameter_set.slots import (
+from ota_image_libs.v1.overlay.schema import OverlayFileEntry
+from ota_image_libs.v1.overlay.slots import (
     APPLY_REBOOT,
     MOUNT_POINT_MODE,
-    ParameterSlot,
+    OverlaySlot,
 )
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
@@ -125,7 +126,7 @@ logger = logging.getLogger(__name__)
 APPLIED, PREVIOUS, DISCARD, STAGING = "applied", "previous", "discard", "staging"
 RECORD_FNAME = "record.json"
 RECORD_SCHEMA_VERSION = 1
-"""The record's fields that others read (docs/parameter_set.md) keep their meaning
+"""The record's fields that others read (docs/overlay.md) keep their meaning
 within a schema version."""
 FILES_FNAME = "files.json"
 MANIFEST_FNAME = "manifest.json"
@@ -139,9 +140,10 @@ LAST_RUNNING_FNAME = "last-running-boot"
 """What was last recorded as `running`; `last-<event>-boot` for any event recorded
 once per boot (`_once_per_boot`)."""
 BASE_CHANGE_FNAME = "base-change-staged.json"
-"""Written when a full update is staged while the slots share the store and it holds
-a set: the slot that boots next may run the same image the set was applied on, which
-the image ID alone cannot tell from the base it was applied on (`whose_set`)."""
+"""Written when a full update is staged while the slots share the store and it holds an
+overlay: the slot that boots next may run the same image the overlay was applied on,
+which the image ID alone cannot tell from the base it was applied on
+(`whose_overlay`)."""
 BOOT_ID_FPATH = "/proc/sys/kernel/random/boot_id"
 
 STORE_MODE = 0o700
@@ -149,23 +151,23 @@ STORE_MODE = 0o700
 (`ensure_private_dir`)."""
 
 MOUNT_OPTIONS = "ro,nosuid,nodev"
-"""A slot may hold executables (a set may carry binaries and launch files), but
+"""A slot may hold executables (an overlay may carry binaries and launch files), but
 nothing in it runs with privilege it does not have, and it holds no device."""
 MOUNT_COMMAND_TIMEOUT = 60
 """Seconds a mount command may take: the boot waits for the mounts, and must not hang
 on one."""
-STAGE_DPATH = "/run/otaclient-parameter-set"
+STAGE_DPATH = "/run/otaclient-overlay"
 """Where, on the host, a slot's bind is made read-only before it goes to the slot's
 path: a private tmpfs mounted for each bind and taken away after it (`bind_ro`)."""
 STDERR_TAIL = 1024
 """How much of a failed command's error output is kept in its error, from the end."""
 
-_FILES = TypeAdapter(list[ParameterSetFileEntry])
+_FILES = TypeAdapter(list[OverlayFileEntry])
 
 
-class ParameterSetFailed(Exception):
-    """A set could not be put in place. `restored` tells whether the slots are back
-    where they were (the set before, or the base's defaults), or could not be put
+class OverlayFailed(Exception):
+    """An overlay could not be put in place. `restored` tells whether the slots are back
+    where they were (the overlay before, or the base's defaults), or could not be put
     back either."""
 
     def __init__(self, msg: str, *, restored: bool) -> None:
@@ -174,7 +176,7 @@ class ParameterSetFailed(Exception):
 
 
 class CommandFailed(Exception):
-    """A command otaclient runs for a parameter set failed: what it was, how it ended
+    """A command otaclient runs for an overlay failed: what it was, how it ended
     and the end of what it wrote to stderr."""
 
 
@@ -191,10 +193,10 @@ def why_not_private(path: Path) -> str | None:
     point it is on down to it, every directory that exists is root's, not writable by
     group or others, and not a symbolic link (`ensure_private_dir`).
 
-    A set's files are bound over the base and its `apply` runs as root: a directory on
-    the way that another user can write (others write under /opt/data on some
-    devices) would let that user rename the store away and plant a set of their own.
-    What otaclient makes on the way (0755, the store 0700) passes."""
+    An overlay's files are bound over the base and its `apply` runs as root: a directory
+    on the way that another user can write (others write under /opt/data on some
+    devices) would let that user rename the store away and plant an overlay of their
+    own. What otaclient makes on the way (0755, the store 0700) passes."""
     try:
         ensure_private_dir(path, create=False)
     except Exception as e:
@@ -253,7 +255,7 @@ def run_command(cmd: list[str], *, what: str, **kwargs: Any) -> None:
 class RecordedSlot(BaseModel):
     """A slot as the record keeps it: otaclient's own model, so that a record this
     otaclient wrote stays readable whatever the image library's slot model becomes.
-    The slot was checked as a ParameterSlot when its set was applied."""
+    The slot was checked as an OverlaySlot when its overlay was applied."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -267,29 +269,29 @@ class RecordedSlot(BaseModel):
         return self.path[1:]
 
     @classmethod
-    def of(cls, slot: ParameterSlot) -> RecordedSlot:
+    def of(cls, slot: OverlaySlot) -> RecordedSlot:
         return cls(name=slot.name, path=slot.path, apply=slot.apply)
 
 
 class AppliedRecord(BaseModel):
-    """A set as this slot applied it, what it was applied on, and the release that
+    """An overlay as this slot applied it, what it was applied on, and the release that
     named it.
 
-    `set_*` is the set itself. `firmware_version`, `release_*` and `image_id` are the
-    release the request named, `image_id` the parameter image's. `base_image_id` is
-    the running image's (its version file) when the set was applied, empty when it
-    has none: with `image_id` it says that this release runs on this base.
+    `overlay_*` is the overlay itself. `firmware_version`, `release_*` and `image_id`
+    are the release the request named, `image_id` the overlay image's. `base_image_id`
+    is the running image's (its version file) when the overlay was applied, empty when
+    it has none: with `image_id` it says that this release runs on this base.
     `base_version` and `base_version_detail` are what the slot recorded before any
-    set, so that a dropped set reports the base again.
+    overlay, so that a dropped overlay reports the base again.
 
-    `schema_version`, `image_id`, `set_name`, `set_version`, `base_image_id` and
-    `applied_at` are read by others (docs/parameter_set.md).
+    `schema_version`, `image_id`, `overlay_name`, `overlay_version`, `base_image_id` and
+    `applied_at` are read by others (docs/overlay.md).
     """
 
     schema_version: int = RECORD_SCHEMA_VERSION
-    set_manifest_digest: str
-    set_name: str
-    set_version: str
+    overlay_manifest_digest: str
+    overlay_name: str
+    overlay_version: str
     slots: list[RecordedSlot]
     base_image_id: str = ""
     firmware_version: str = ""
@@ -305,9 +307,9 @@ class AppliedRecord(BaseModel):
         """What the history says of it."""
         return self.model_dump(
             include={
-                "set_manifest_digest",
-                "set_name",
-                "set_version",
+                "overlay_manifest_digest",
+                "overlay_name",
+                "overlay_version",
                 "base_image_id",
                 "firmware_version",
                 "release_name",
@@ -318,17 +320,20 @@ class AppliedRecord(BaseModel):
         ) | {"slots": [_s.name for _s in self.slots]}
 
     def describe(self) -> str:
-        return f"{self.set_name} {self.set_version} ({self.set_manifest_digest})"
+        return (
+            f"{self.overlay_name} {self.overlay_version} "
+            f"({self.overlay_manifest_digest})"
+        )
 
     def is_recorded_by(self, records: CurrentSlotRecords) -> bool:
-        """Whether the current slot records this set's release as its own."""
+        """Whether the current slot records this overlay's release as its own."""
         _version, _detail = records.load_recorded_version()
         return _version == self.firmware_version and (
             (_detail.image_id if _detail else "") == self.image_id
         )
 
 
-class ParameterSlotMounter(Protocol):
+class OverlaySlotMounter(Protocol):
     def is_mounted(self, mount_point: str) -> bool: ...
     def make_mount_point(self, mount_point: str) -> bool: ...
     def bind_ro(self, source: Path, mount_point: str) -> None: ...
@@ -350,13 +355,13 @@ class CurrentSlotRecords(Protocol):
     ) -> None: ...
 
 
-class HostParameterSlotMounter:
+class HostOverlaySlotMounter:
     """Mounts in the host's mount namespace, also from an app image: what the
     device's processes see is the host's view, and so are the paths checked.
 
     The store is used at its path as it is: an app image binds the host's /opt at the
     same path (samples/otaclient.service_app,
-    samples/otaclient-parameter-set.service_app).
+    samples/otaclient-overlay.service_app).
     Each command is bounded by MOUNT_COMMAND_TIMEOUT.
     """
 
@@ -465,7 +470,7 @@ class HostParameterSlotMounter:
         self._run(["mkdir", "-p", STAGE_DPATH], what="making the staging directory")
         self._run(
             ["mount", "-t", "tmpfs", "-o", "mode=0700,size=64k"]
-            + ["otaclient-parameter-set", STAGE_DPATH],
+            + ["otaclient-overlay", STAGE_DPATH],
             what="mounting the staging tmpfs",
         )
         try:
@@ -505,7 +510,7 @@ class HostParameterSlotMounter:
 def run_apply(command: str) -> None:
     """Run a slot's `apply` in the host's root and mount namespace: what it runs and
     reads is what the device's processes see, the slots' mounts included (an `apply`
-    the set carries is a file on one of them), also from an app image."""
+    the overlay carries is a file on one of them), also from an app image."""
     logger.info(f"running {command} ...")
     run_command(
         [command],
@@ -513,17 +518,17 @@ def run_apply(command: str) -> None:
         # entering it resets the root to the host's: no chroot as well, as the
         #   mounter does
         set_host_mnt_ns=_env.is_dynamic_client_running(),
-        timeout=cfg.PARAMETER_SET_APPLY_TIMEOUT,
+        timeout=cfg.OVERLAY_APPLY_TIMEOUT,
     )
 
 
-def _file_key(entry: ParameterSetFileEntry) -> tuple[str, int, str]:
-    """What tells two files of a set apart: path, size and digest."""
+def _file_key(entry: OverlayFileEntry) -> tuple[str, int, str]:
+    """What tells two files of an overlay apart: path, size and digest."""
     return (entry.path, entry.size, str(entry.digest))
 
 
 def _slot_files(
-    files: Iterable[ParameterSetFileEntry], slot: RecordedSlot
+    files: Iterable[OverlayFileEntry], slot: RecordedSlot
 ) -> frozenset[tuple[str, int, str]]:
     return frozenset(
         _file_key(_f) for _f in files if _f.path.startswith(slot.relpath + "/")
@@ -531,22 +536,22 @@ def _slot_files(
 
 
 def _slot_key(slot: RecordedSlot) -> tuple[str, str]:
-    """A slot is the same in two sets when its name and its path are."""
+    """A slot is the same in two overlays when its name and its path are."""
     return (slot.name, slot.path)
 
 
-class ParameterSetStore:
+class OverlayStore:
     """The store, the mounts and the history."""
 
     def __init__(
         self,
         *,
         root: Path | None = None,
-        mounter: ParameterSlotMounter | None = None,
+        mounter: OverlaySlotMounter | None = None,
         runner: ApplyRunner | None = None,
     ) -> None:
-        self.root = root or Path(cfg.PARAMETER_SET_DPATH)
-        self._mounter = mounter or HostParameterSlotMounter()
+        self.root = root or Path(cfg.OVERLAY_DPATH)
+        self._mounter = mounter or HostOverlaySlotMounter()
         self._runner = runner or run_apply
 
     @property
@@ -572,37 +577,38 @@ class ParameterSetStore:
     def is_mounted(self, mount_point: str) -> bool:
         return self._mounter.is_mounted(mount_point)
 
-    def tree_of(self, slot: RecordedSlot, set_dir: Path | None = None) -> Path:
-        """The unpacked directory of `slot` in the set in `set_dir` (applied/)."""
-        return (set_dir or self.applied_dir) / TREE_DNAME / slot.relpath
+    def tree_of(self, slot: RecordedSlot, overlay_dir: Path | None = None) -> Path:
+        """The unpacked directory of `slot` in the overlay in `overlay_dir`
+        (applied/)."""
+        return (overlay_dir or self.applied_dir) / TREE_DNAME / slot.relpath
 
     # ------ records ------ #
 
     def applied_record(self) -> AppliedRecord | None:
-        """The applied set's record; None when there is none, or when it cannot be
-        read (`check_at_startup` drops such a set)."""
+        """The applied overlay's record; None when there is none, or when it cannot be
+        read (`check_at_startup` drops such an overlay)."""
         try:
             return self._read_record(self.applied_dir)
         except Exception as e:
-            logger.warning(f"the applied set's record is unreadable: {e!r}")
+            logger.warning(f"the applied overlay's record is unreadable: {e!r}")
             return None
 
     @staticmethod
-    def _read_record(set_dir: Path) -> AppliedRecord | None:
+    def _read_record(overlay_dir: Path) -> AppliedRecord | None:
         try:
-            _raw = (set_dir / RECORD_FNAME).read_text()
+            _raw = (overlay_dir / RECORD_FNAME).read_text()
         except FileNotFoundError:
             return None
         return AppliedRecord.model_validate_json(_raw)
 
     @staticmethod
-    def _read_files(set_dir: Path) -> list[ParameterSetFileEntry]:
+    def _read_files(overlay_dir: Path) -> list[OverlayFileEntry]:
         try:
-            return _FILES.validate_json((set_dir / FILES_FNAME).read_text())
+            return _FILES.validate_json((overlay_dir / FILES_FNAME).read_text())
         except FileNotFoundError:
             return []
 
-    # ------ whose the set is ------ #
+    # ------ whose the overlay is ------ #
 
     def why_not_trusted(self) -> str | None:
         """Why the store cannot be trusted (`why_not_private`), None when it can:
@@ -613,82 +619,88 @@ class ParameterSetStore:
 
     def is_shared(self) -> bool:
         """Whether the store is on another filesystem than the running slot's root: a
-        partition both slots mount, which may hold the set another base applied."""
+        partition both slots mount, which may hold the overlay another base applied."""
         return not on_the_active_root_filesystem(self.root)
 
     def base_change_staged(self) -> bool:
-        """Whether a full update was staged since the set was applied, the slots
+        """Whether a full update was staged since the overlay was applied, the slots
         sharing the store (`BASE_CHANGE_FNAME`)."""
         return os.path.lexists(self.root / BASE_CHANGE_FNAME)
 
-    def whose_set(
+    def whose_overlay(
         self,
         running_image_id: str,
         *,
         slot_records: CurrentSlotRecords | None = None,
     ) -> tuple[AppliedRecord | None, str | None]:
-        """The set the store holds (the applied one, else the one an unfinished switch
-        left in `previous/`), and why it is not the running base's, None when it is.
+        """The overlay the store holds (the applied one, else the one an unfinished
+        switch left in `previous/`), and why it is not the running base's, None when it
+        is.
 
         It is not when its record cannot be read, when it was applied on another
         image, when it was applied on an image without an ID while the slots share the
         store (two such bases cannot be told apart), or when a full update was staged
         since (the same image may have been installed again in the other slot) and
-        the slot does not record the set's release: the slot it was applied on still
+        the slot does not record the overlay's release: the slot it was applied on still
         does. Without `slot_records` (at boot), a staged full update is enough: who
         runs is told at otaclient's start."""
         try:
-            _set = self._read_record(self.applied_dir) or self._read_record(
+            _overlay = self._read_record(self.applied_dir) or self._read_record(
                 self.previous_dir
             )
         except Exception as e:
-            return None, f"the set's record is unreadable: {e!r}"
-        if _set is None:
+            return None, f"the overlay's record is unreadable: {e!r}"
+        if _overlay is None:
             return None, None
-        if _set.base_image_id != running_image_id:
-            return _set, (
-                f"the set was applied on image {_set.base_image_id!r}, the slot "
-                f"runs image {running_image_id!r}"
+        if _overlay.base_image_id != running_image_id:
+            return _overlay, (
+                f"the overlay was applied on image {_overlay.base_image_id!r}, the "
+                f"slot runs image {running_image_id!r}"
             )
-        if not _set.base_image_id and self.is_shared():
-            return _set, (
-                "the set was applied on an image without an image ID, and the slots "
-                "share the store: which base it was applied on cannot be told"
+        if not _overlay.base_image_id and self.is_shared():
+            return _overlay, (
+                "the overlay was applied on an image without an image ID, and the "
+                "slots share the store: which base it was applied on cannot be told"
             )
         if self.base_change_staged():
             if slot_records is None:
-                return _set, (
-                    "a full update was staged since the set was applied: which slot "
-                    "runs is told when otaclient starts"
+                return _overlay, (
+                    "a full update was staged since the overlay was applied: which "
+                    "slot runs is told when otaclient starts"
                 )
-            if not _set.is_recorded_by(slot_records):
-                return _set, (
-                    "a full update was staged since the set was applied, and this "
-                    "slot does not record the set's release: it runs the new base"
+            if not _overlay.is_recorded_by(slot_records):
+                return _overlay, (
+                    "a full update was staged since the overlay was applied, and this "
+                    "slot does not record the overlay's release: it runs the new base"
                 )
-        return _set, None
+        return _overlay, None
 
     def applied_record_of(
         self, running_image_id: str, *, slot_records: CurrentSlotRecords
     ) -> AppliedRecord | None:
-        """The applied set's record when the set is the running base's (`whose_set`):
-        what the set before an update is, and what it covers; None otherwise."""
-        if self.whose_set(running_image_id, slot_records=slot_records)[1] is not None:
+        """The applied overlay's record when the overlay is the running base's
+        (`whose_overlay`): what the overlay before an update is, and what it covers;
+        None otherwise."""
+        if (
+            self.whose_overlay(running_image_id, slot_records=slot_records)[1]
+            is not None
+        ):
             return None
         return self.applied_record()
 
-    def set_aside_another_bases_set(
+    def set_aside_another_bases_overlay(
         self, running_image_id: str, *, slot_records: CurrentSlotRecords
     ) -> None:
-        """Before a switch, the running base committed: a set in the store that is not
-        the running base's (`whose_set`) is not the set before. It is dropped as at
-        otaclient's start, nothing unmounted: the switch is then a first set's, every
-        slot of the new set applied, and a failure undoes it to the base's defaults,
-        never to the other base's set."""
-        _set, _why = self.whose_set(running_image_id, slot_records=slot_records)
+        """Before a switch, the running base committed: an overlay in the store that is
+        not the running base's (`whose_overlay`) is not the overlay before. It is
+        dropped as at otaclient's start, nothing unmounted: the switch is then a first
+        overlay's, every slot of the new overlay applied, and a failure undoes it to the
+        base's defaults, never to the other base's overlay."""
+        _overlay, _why = self.whose_overlay(running_image_id, slot_records=slot_records)
         if _why is not None:
             self._drop_another_bases(
-                _set, f"replaced by a set on image {running_image_id!r}: {_why}"
+                _overlay,
+                f"replaced by an overlay on image {running_image_id!r}: {_why}",
             )
 
     def record_event(self, event: str, **fields: Any) -> None:
@@ -722,8 +734,8 @@ class ParameterSetStore:
     def discard_staging(self) -> None:
         shutil.rmtree(self.staging_dir, ignore_errors=True)
 
-    def stage(self, record: AppliedRecord, files: list[ParameterSetFileEntry]) -> None:
-        """Write the staged set's record and the files that were unpacked for it,
+    def stage(self, record: AppliedRecord, files: list[OverlayFileEntry]) -> None:
+        """Write the staged overlay's record and the files that were unpacked for it,
         and flush the staging onto the disk: what is switched to is on the disk."""
         write_str_to_file_atomic(
             self.staging_dir / FILES_FNAME, _FILES.dump_json(files).decode()
@@ -743,7 +755,7 @@ class ParameterSetStore:
                 self._mounter.umount(_point)
 
     def _set_aside_applied(self) -> None:
-        """Rename applied/ to discard/ (one rename, so that the set is not the
+        """Rename applied/ to discard/ (one rename, so that the overlay is not the
         applied one any more whatever fails after); discard/ goes later, or at the
         next start."""
         shutil.rmtree(self.discard_dir, ignore_errors=True)
@@ -783,7 +795,7 @@ class ParameterSetStore:
     def _put_in_place(
         self, record: AppliedRecord | None, changed: Iterable[RecordedSlot]
     ) -> bool:
-        """Mount `record`, the applied set by now, and run the `apply` of `changed`.
+        """Mount `record`, the applied overlay by now, and run the `apply` of `changed`.
         The renames that made it the applied one are flushed before an `apply` runs:
         a boot from here on mounts what an `apply` took effect with."""
         self._mount(record)
@@ -793,9 +805,9 @@ class ParameterSetStore:
     @staticmethod
     def changed_slots(
         old: AppliedRecord | None,
-        old_files: list[ParameterSetFileEntry],
+        old_files: list[OverlayFileEntry],
         new: AppliedRecord,
-        new_files: list[ParameterSetFileEntry],
+        new_files: list[OverlayFileEntry],
     ) -> list[RecordedSlot]:
         """The slots `new` fills whose contents change from `old`, with the `apply`
         that makes each change take effect (`new`'s, the file at its path once `new`
@@ -824,26 +836,26 @@ class ParameterSetStore:
         old: AppliedRecord | None,
         old_dir: Path,
         new: AppliedRecord,
-        new_files: list[ParameterSetFileEntry],
+        new_files: list[OverlayFileEntry],
     ) -> list[RecordedSlot]:
-        """The slots `new` fills whose contents change from the set in `old_dir`: by
-        their file lists, unless the files in `old_dir` are not its set's own, when
+        """The slots `new` fills whose contents change from the overlay in `old_dir`: by
+        their file lists, unless the files in `old_dir` are not its overlay's own, when
         every slot `new` fills changes."""
         if old is not None and (_why := self.check_tree(old, old_dir)) is not None:
             logger.warning(
-                f"the files of {old.describe()} are not the set's ({_why}): "
+                f"the files of {old.describe()} are not the overlay's ({_why}): "
                 "every slot is applied"
             )
             return list(new.slots)
         return self.changed_slots(old, self._read_files(old_dir), new, new_files)
 
     def switch(self) -> bool:
-        """Put the staged set in place of the applied one, keeping that one as
-        `previous/` until `commit`, and run the `apply` of every slot the new set
+        """Put the staged overlay in place of the applied one, keeping that one as
+        `previous/` until `commit`, and run the `apply` of every slot the new overlay
         fills whose contents change; nothing runs for a slot it takes away.
 
-        On failure the applied set is put back, its `apply`s run again, and
-        ParameterSetFailed raised, saying whether that worked. Returns True when a
+        On failure the applied overlay is put back, its `apply`s run again, and
+        OverlayFailed raised, saying whether that worked. Returns True when a
         changed slot's `apply` is `reboot`.
         """
         _new = self._read_record(self.staging_dir)
@@ -855,7 +867,7 @@ class ParameterSetStore:
         shutil.rmtree(self.previous_dir, ignore_errors=True)
         _renamed = False
         try:
-            # the new set's slots too: a switch that failed before may have left one
+            # the new overlay's slots too: a switch that failed before may have left one
             #   (anything else mounted there was refused before the update began)
             self._unmount(self._paths(_old, _new))
             if self.applied_dir.exists():
@@ -864,15 +876,15 @@ class ParameterSetStore:
             os.replace(self.staging_dir, self.applied_dir)
             return self._put_in_place(_new, _changed)
         except Exception as e:
-            logger.error(f"failed to put the parameter set in place: {e}; rolling back")
+            logger.error(f"failed to put the overlay in place: {e}; rolling back")
             if _renamed:
                 _restored = self.roll_back(cause=e)
             else:
-                # nothing was moved: the applied set is still the old one, only its
+                # nothing was moved: the applied overlay is still the old one, only its
                 #   mounts may be gone
                 _restored = self._remount(_old, cause=e)
-            raise ParameterSetFailed(
-                f"the set was not put in place: {e}", restored=_restored
+            raise OverlayFailed(
+                f"the overlay was not put in place: {e}", restored=_restored
             ) from e
 
     def _remount(self, record: AppliedRecord | None, *, cause: Exception) -> bool:
@@ -881,12 +893,12 @@ class ParameterSetStore:
             self.record_event("rolled_back", cause=str(cause), remounted=True)
             return True
         except Exception as e:
-            logger.error(f"failed to mount the applied set again: {e}")
+            logger.error(f"failed to mount the applied overlay again: {e}")
             self.record_event("roll_back_failed", cause=str(cause), error=str(e))
             return False
 
     def commit(self) -> None:
-        """The slot records the new set's release: the one before goes for good.
+        """The slot records the new overlay's release: the one before goes for good.
 
         One rename marks it gone before it is deleted: a crash while it is deleted
         leaves `discard/`, not a `previous/` that would be taken for a switch that did
@@ -897,24 +909,24 @@ class ParameterSetStore:
                 shutil.rmtree(self.discard_dir, ignore_errors=True)
                 os.replace(self.previous_dir, self.discard_dir)
         except Exception as e:
-            logger.warning(f"failed to set the set before aside: {e!r}")
+            logger.warning(f"failed to set the overlay before aside: {e!r}")
         shutil.rmtree(self.discard_dir, ignore_errors=True)
         shutil.rmtree(self.previous_dir, ignore_errors=True)
         if (_record := self.applied_record()) is not None:
             self.record_event("applied", **_record.evidence())
 
     def roll_back(self, *, cause: Exception, unmounted: Iterable[str] = ()) -> bool:
-        """Put `previous/` (or no set, when there was none) back in place of the
-        applied set, and run the `apply` of the slots the set put back fills that
-        change back; nothing runs for a slot it does not fill. Never raises: returns
-        whether the slots are back, a failure is recorded.
+        """Put `previous/` (or no overlay, when there was none) back in place of the
+        applied overlay, and run the `apply` of the slots the overlay put back fills
+        that change back; nothing runs for a slot it does not fill. Never raises:
+        returns whether the slots are back, a failure is recorded.
 
-        `unmounted` are the paths no set was mounted at when the roll back began (the
-        boot mounts nothing while a switch is unfinished): what reads them started
-        with the base's, so a slot the set put back fills there is applied too.
+        `unmounted` are the paths no overlay was mounted at when the roll back began
+        (the boot mounts nothing while a switch is unfinished): what reads them started
+        with the base's, so a slot the overlay put back fills there is applied too.
 
-        The renames come first, the mounts after: whatever fails below, `applied/`
-        is the set put back, and that is what a later boot and otaclient's next start
+        The renames come first, the mounts after: whatever fails below, `applied/` is
+        the overlay put back, and that is what a later boot and otaclient's next start
         lay, not the failed one."""
         try:
             _failed = self.applied_record()
@@ -928,7 +940,7 @@ class ParameterSetStore:
                 )
             else:
                 # one side is not there (crashed between the two renames of a switch,
-                #   or no set before): every slot the set put back fills changes
+                #   or no overlay before): every slot the overlay put back fills changes
                 _changed = list(_back.slots) if _back else []
             _unmounted = set(unmounted)
             _changed += [
@@ -937,8 +949,8 @@ class ParameterSetStore:
                 if _s.path in _unmounted and _s not in _changed
             ]
             _points = self._paths(_failed, _back)
-            # the failed set leaves applied/ (for discard/), and the set put back (or
-            #   none) takes its place
+            # the failed overlay leaves applied/ (for discard/), and the overlay put
+            #   back (or none) takes its place
             self._set_aside_applied()
             if self.previous_dir.exists():
                 os.replace(self.previous_dir, self.applied_dir)
@@ -950,11 +962,11 @@ class ParameterSetStore:
             self.record_event(
                 "rolled_back",
                 cause=str(cause),
-                set=_back.set_manifest_digest if _back else None,
+                overlay=_back.overlay_manifest_digest if _back else None,
             )
             return True
         except Exception as e:
-            logger.error(f"failed to roll the parameter set back: {e}")
+            logger.error(f"failed to roll the overlay back: {e}")
             self.record_event("roll_back_failed", cause=str(cause), error=str(e))
             return False
 
@@ -976,23 +988,23 @@ class ParameterSetStore:
         ):
             self._apply_again(_applied, _again, after="recovered")
 
-    # ------ the applied set, verified ------ #
+    # ------ the applied overlay, verified ------ #
 
     def check_tree(
-        self, record: AppliedRecord, set_dir: Path | None = None
+        self, record: AppliedRecord, overlay_dir: Path | None = None
     ) -> str | None:
-        """Why the unpacked files of the set in `set_dir` (the applied one by default)
-        are not what otaclient unpacked and checked, or None: every file of its list,
-        with its size and digest, and nothing else."""
-        set_dir = set_dir or self.applied_dir
+        """Why the unpacked files of the overlay in `overlay_dir` (the applied one by
+        default) are not what otaclient unpacked and checked, or None: every file of its
+        list, with its size and digest, and nothing else."""
+        overlay_dir = overlay_dir or self.applied_dir
         try:
-            _expected = {_f.path: _f for _f in self._read_files(set_dir)}
+            _expected = {_f.path: _f for _f in self._read_files(overlay_dir)}
         except Exception as e:
-            return f"the list of the set's files is unreadable: {e!r}"
-        _tree = set_dir / TREE_DNAME
+            return f"the list of the overlay's files is unreadable: {e!r}"
+        _tree = overlay_dir / TREE_DNAME
         _found: set[str] = set()
         for _slot in record.slots:
-            _slot_dir = self.tree_of(_slot, set_dir)
+            _slot_dir = self.tree_of(_slot, overlay_dir)
             if not _slot_dir.is_dir() or _slot_dir.is_symlink():
                 return f"slot {_slot.name!r} is missing"
             for _dirpath, _dirnames, _filenames in os.walk(_slot_dir):
@@ -1009,37 +1021,39 @@ class ParameterSetStore:
                         return f"{_rel} is not a regular file"
                     _want = _expected.get(_rel)
                     if _want is None:
-                        return f"{_rel} is not in the set"
+                        return f"{_rel} is not in the overlay"
                     if _want.size != _st.st_size or _want.digest != Sha256Digest(
                         file_sha256(_p)
                     ):
-                        return f"{_rel} differs from the set"
+                        return f"{_rel} differs from the overlay"
                     _found.add(_rel)
         if _missing := sorted(set(_expected) - _found):
-            return f"{len(_missing)} files of the set are missing, {_missing[0]} first"
+            return (
+                f"{len(_missing)} files of the overlay are missing, {_missing[0]} first"
+            )
         return None
 
     # ------ at boot ------ #
 
     def mount_at_boot(self, running_image_id: str) -> bool:
-        """At boot, before local-fs.target (`otaclient mount-parameter-set`): bind
-        each slot of the applied set that is not mounted over its path, read-only,
+        """At boot, before local-fs.target (`otaclient mount-overlay`): bind
+        each slot of the applied overlay that is not mounted over its path, read-only,
         before anything that reads it starts. The mount point is made when the image
         has none and it can be made there.
 
         Only what `applied/` says is mounted, and only when it holds: what is not
         decided here is left to otaclient's start (`check_at_startup`), which has the
         slot's records to decide by. Nothing is laid from a store that is not root's
-        alone, nor a set this boot cannot tell is the running base's (`whose_set`
-        without the slot's records: a trial boot of a new base may run over the
-        other base's set in a store the slots share), nor a set whose record cannot
-        be read or is of a newer schema than this otaclient's: those are logged and
-        the store is left as it is. Nothing is mounted while a switch is unfinished
-        (`previous/`: otaclient completes it or rolls it back). No `apply` runs:
-        what reads a slot has not started yet. One event is recorded when the set is
-        the running base's, none otherwise.
+        alone, nor an overlay this boot cannot tell is the running base's
+        (`whose_overlay` without the slot's records: a trial boot of a new base may run
+        over the other base's overlay in a store the slots share), nor an overlay whose
+        record cannot be read or is of a newer schema than this otaclient's: those are
+        logged and the store is left as it is. Nothing is mounted while a switch is
+        unfinished (`previous/`: otaclient completes it or rolls it back). No `apply`
+        runs: what reads a slot has not started yet. One event is recorded when the
+        overlay is the running base's, none otherwise.
 
-        Returns False when a slot of the set, or the set itself, could not be
+        Returns False when a slot of the overlay, or the overlay itself, could not be
         mounted; a slot that cannot be mounted does not keep the others from being
         mounted. Never raises.
         """
@@ -1048,35 +1062,35 @@ class ParameterSetStore:
             if not (
                 os.path.lexists(self.applied_dir) or os.path.lexists(self.previous_dir)
             ):
-                logger.info("no parameter set is applied")
+                logger.info("no overlay is applied")
                 return True
             if (_untrusted := self.why_not_trusted()) is not None:
                 logger.error(
-                    f"the parameter set store is not root's alone ({_untrusted}): "
+                    f"the overlay store is not root's alone ({_untrusted}): "
                     "nothing is mounted"
                 )
                 return False
-            _set, _why = self.whose_set(running_image_id)
-            if _set is None:
+            _overlay, _why = self.whose_overlay(running_image_id)
+            if _overlay is None:
                 if _why is None:
-                    logger.info("no parameter set is applied")
+                    logger.info("no overlay is applied")
                     return True
                 logger.error(
-                    f"{_why}: nothing is mounted, otaclient drops the set once this "
-                    "base is committed"
+                    f"{_why}: nothing is mounted, otaclient drops the overlay once "
+                    "this base is committed"
                 )
                 return False
             if _why is not None:
                 logger.warning(
-                    f"parameter set {_set.describe()} is not laid ({_why}): the store "
+                    f"overlay {_overlay.describe()} is not laid ({_why}): the store "
                     "is left as it is, otaclient decides when it starts, and drops "
-                    "the set once this base is committed if it is not this base's"
+                    "the overlay once this base is committed if it is not this base's"
                 )
                 return True
-            if _set.schema_version > RECORD_SCHEMA_VERSION:
+            if _overlay.schema_version > RECORD_SCHEMA_VERSION:
                 logger.warning(
-                    f"parameter set {_set.describe()} was recorded with schema "
-                    f"{_set.schema_version}, newer than this otaclient's "
+                    f"overlay {_overlay.describe()} was recorded with schema "
+                    f"{_overlay.schema_version}, newer than this otaclient's "
                     f"{RECORD_SCHEMA_VERSION}: nothing is mounted, left to "
                     "otaclient's start"
                 )
@@ -1084,18 +1098,18 @@ class ParameterSetStore:
             _record = self._read_record(self.applied_dir)
             if self.previous_dir.exists() or _record is None:
                 logger.warning(
-                    "a parameter set switch did not finish: nothing is mounted, "
+                    "an overlay switch did not finish: nothing is mounted, "
                     "otaclient completes it or rolls it back when it starts"
                 )
                 self.record_event(
                     "not_mounted_at_boot",
                     reason="a switch did not finish",
                     boot_id=_boot,
-                    set_manifest_digest=_set.set_manifest_digest,
+                    overlay_manifest_digest=_overlay.overlay_manifest_digest,
                 )
                 return True
         except Exception as e:
-            logger.error(f"failed to read the parameter set store: {e!r}")
+            logger.error(f"failed to read the overlay store: {e!r}")
             return False
 
         _mounted: list[str] = []
@@ -1123,7 +1137,7 @@ class ParameterSetStore:
         self.record_event(
             "mounted_at_boot",
             boot_id=_boot,
-            set_manifest_digest=_record.set_manifest_digest,
+            overlay_manifest_digest=_record.overlay_manifest_digest,
             mounted=_mounted,
             already_mounted=_already,
             mount_points_made=_made,
@@ -1140,7 +1154,7 @@ class ParameterSetStore:
         slot_records: CurrentSlotRecords,
         base_committed: bool,
     ) -> AppliedRecord | None:
-        """At otaclient's start: the applied set, kept as the last update left it.
+        """At otaclient's start: the applied overlay, kept as the last update left it.
 
         `running_image_id` is the running image's ID from its version file, "" when
         it has none (or none otaclient reads), as `base_image_id` was recorded.
@@ -1148,57 +1162,57 @@ class ParameterSetStore:
         SUCCESS or INITIALIZED, otaclient not the downloaded client), as the boot
         controller concluded the boot.
 
-        The boot-time unit (`mount_at_boot`) mounted the set at boot, before anything
-        read it; this is where it is checked, and where that is recorded. A switch
-        that did not finish (`previous/` still there) is completed when the slot
-        records the applied set's release, and rolled back otherwise. Files other
-        than the set's are kept and recorded: what the ECU runs changes by an update
-        only. A slot that is not mounted (the boot-time unit is not installed, could
-        not mount it, or left it to this start after a full update was staged) is
-        mounted, and its `apply` runs.
+        The boot-time unit (`mount_at_boot`) mounted the overlay at boot, before
+        anything read it; this is where it is checked, and where that is recorded. A
+        switch that did not finish (`previous/` still there) is completed when the slot
+        records the applied overlay's release, and rolled back otherwise. Files other
+        than the overlay's are kept and recorded: what the ECU runs changes by an update
+        only. A slot that is not mounted (the boot-time unit is not installed, could not
+        mount it, or left it to this start after a full update was staged) is mounted,
+        and its `apply` runs.
 
-        A set that is not the running base's (`whose_set`), or whose record cannot be
-        read, is not laid. It is dropped once the running base is committed, with
-        nothing unmounted (it was never laid on this base); until then (a trial boot
-        of a new base that may still fall back to the base the set was applied on)
-        it is kept as it is, recorded once per boot. That is for a store the slots
-        share only: a store on the slot's own root holds no set of a base the ECU can
-        fall back to, and its set of another base is dropped whatever the status. Otherwise the set is dropped
-        (the slots get the base's defaults, the slot reports the base) only when a
-        slot cannot be mounted; an `apply` that fails after a slot was mounted again
-        is recorded, the set kept. Nothing is laid, recorded or deleted when the
-        store is not root's alone.
+        An overlay that is not the running base's (`whose_overlay`), or whose record
+        cannot be read, is not laid. It is dropped once the running base is committed,
+        with nothing unmounted (it was never laid on this base); until then (a trial
+        boot of a new base that may still fall back to the base the overlay was applied
+        on) it is kept as it is, recorded once per boot. That is for a store the slots
+        share only: a store on the slot's own root holds no overlay of a base the ECU
+        can fall back to, and its overlay of another base is dropped whatever the
+        status. Otherwise the overlay is dropped (the slots get the base's defaults, the
+        slot reports the base) only when a slot cannot be mounted; an `apply` that fails
+        after a slot was mounted again is recorded, the overlay kept. Nothing is laid,
+        recorded or deleted when the store is not root's alone.
         """
         if (_untrusted := self.why_not_trusted()) is not None:
             logger.error(
-                f"the parameter set store is not root's alone ({_untrusted}): "
+                f"the overlay store is not root's alone ({_untrusted}): "
                 "nothing is laid from it, and nothing deleted"
             )
             return None
-        # whose set the store holds, before anything in it changes
-        _set, _why = self.whose_set(running_image_id, slot_records=slot_records)
+        # whose overlay the store holds, before anything in it changes
+        _overlay, _why = self.whose_overlay(running_image_id, slot_records=slot_records)
         if _why is not None:
-            # only a store the slots share may hold the set of a base the ECU can
+            # only a store the slots share may hold the overlay of a base the ECU can
             #   fall back to: one on this slot's own root came with this slot
             if base_committed or not self.is_shared():
-                self._drop_another_bases(_set, _why)
+                self._drop_another_bases(_overlay, _why)
             else:
-                self._keep_for_its_base(_set, _why)
+                self._keep_for_its_base(_overlay, _why)
             return None
-        _because = (
-            "the boot-time unit (otaclient mount-parameter-set) did not mount them"
-        )
+        _because = "the boot-time unit (otaclient mount-overlay) did not mount them"
         if self.base_change_staged():
-            # the slot the set was applied on: the full update staged from it did not
-            #   switch, or fell back; the boot left the set to this start
+            # the slot the overlay was applied on: the full update staged from it did
+            #   not switch, or fell back; the boot left the overlay to this start
             logger.warning(
-                "a full update was staged since the parameter set was applied, and "
-                "this slot still records the set's release: laid again"
+                "a full update was staged since the overlay was applied, and "
+                "this slot still records the overlay's release: laid again"
             )
             remove_file(self.root / BASE_CHANGE_FNAME)
             self.record_event(
                 "base_change_not_taken",
-                set_manifest_digest=_set.set_manifest_digest if _set else None,
+                overlay_manifest_digest=_overlay.overlay_manifest_digest
+                if _overlay
+                else None,
             )
             _because = "a full update was staged, the boot left them to this start"
 
@@ -1209,18 +1223,18 @@ class ParameterSetStore:
         try:
             _record = self._read_record(self.applied_dir)
         except Exception as e:
-            self._drop(None, f"the set's record is unreadable: {e!r}")
+            self._drop(None, f"the overlay's record is unreadable: {e!r}")
             return None
         if _record is None:
             return None
         logger.info(
-            f"parameter set {_record.describe()} is applied on image "
+            f"overlay {_record.describe()} is applied on image "
             f"{_record.base_image_id or '(no version file)'}"
         )
         if (_mismatch := self.check_tree(_record)) is not None:
             logger.error(
-                f"the files of {_record.describe()} are not the set's ({_mismatch}): "
-                "kept as they are until the next update of the set"
+                f"the files of {_record.describe()} are not the overlay's "
+                f"({_mismatch}): kept as they are until the next update of the overlay"
             )
 
         _unmounted = [
@@ -1235,13 +1249,13 @@ class ParameterSetStore:
         return _record
 
     def _keep_for_its_base(self, record: AppliedRecord | None, why: str) -> None:
-        """A set not laid, kept for the base it may be (a trial boot not committed):
-        said each start, recorded once per boot."""
-        _what = record.describe() if record else "the applied set"
+        """An overlay not laid, kept for the base it may be (a trial boot not
+        committed): said each start, recorded once per boot."""
+        _what = record.describe() if record else "the applied overlay"
         logger.warning(
             f"{_what} is not laid ({why}): kept as it is until this base is committed"
         )
-        _digest = record.set_manifest_digest if record else ""
+        _digest = record.overlay_manifest_digest if record else ""
         if self._once_per_boot("not-laid", _digest):
             self.record_event(
                 "not_laid",
@@ -1266,13 +1280,13 @@ class ParameterSetStore:
         return True
 
     def _drop_another_bases(self, record: AppliedRecord | None, why: str) -> None:
-        """Drop a set that is not the running base's, the running base committed: the
-        set and a switch it left unfinished leave the store, and so does a staged
-        full update's mark. It is not laid on this base at boot, so what is mounted
-        at its slots' paths is this base's own and stays; only a bind of the set's
-        own directory (laid in this boot, before the running image changed in
+        """Drop an overlay that is not the running base's, the running base committed:
+        the overlay and a switch it left unfinished leave the store, and so does a
+        staged full update's mark. It is not laid on this base at boot, so what is
+        mounted at its slots' paths is this base's own and stays; only a bind of the
+        overlay's own directory (laid in this boot, before the running image changed in
         place) is taken away, once."""
-        _what = record.describe() if record else "the applied set"
+        _what = record.describe() if record else "the applied overlay"
         logger.warning(f"{_what} is not this base's ({why}): dropped")
         _evidence = record.evidence() if record else {}
         _ours: list[str] = []
@@ -1287,7 +1301,7 @@ class ParameterSetStore:
         try:
             self._set_aside_applied()
             for _point in _ours:
-                logger.info(f"taking the set's own mount at {_point} away")
+                logger.info(f"taking the overlay's own mount at {_point} away")
                 self._mounter.umount(_point)
             shutil.rmtree(self.discard_dir, ignore_errors=True)
             shutil.rmtree(self.previous_dir, ignore_errors=True)
@@ -1322,7 +1336,7 @@ class ParameterSetStore:
             self._complete_switch(unmounted=_unmounted)
             self.record_event("recovered", completed=True)
             return
-        logger.warning("a parameter set switch did not finish: rolling it back")
+        logger.warning("an overlay switch did not finish: rolling it back")
         if self.roll_back(
             cause=RuntimeError("an unfinished switch"), unmounted=_unmounted
         ):
@@ -1336,11 +1350,11 @@ class ParameterSetStore:
         slot_records: CurrentSlotRecords,
         because: str,
     ) -> bool:
-        """Slots of the applied set that are not mounted (`because`: the boot-time
+        """Slots of the applied overlay that are not mounted (`because`: the boot-time
         unit is not installed, failed for them, or left them to this start), so they
         ran with the base's defaults until now. They are mounted and their `apply`
-        runs again; a slot that cannot be mounted drops the set (False), an `apply`
-        that fails is recorded and the set kept (True)."""
+        runs again; a slot that cannot be mounted drops the overlay (False), an `apply`
+        that fails is recorded and the overlay kept (True)."""
         logger.warning(
             f"slots {[_s.name for _s in unmounted]} are not mounted ({because}): "
             "mounting them and running their apply"
@@ -1352,13 +1366,13 @@ class ParameterSetStore:
         except Exception as e:
             self._drop(
                 record,
-                f"the set could not be mounted: {e}",
+                f"the overlay could not be mounted: {e}",
                 slot_records=slot_records,
             )
             return False
         self.record_event(
             "remounted",
-            set=record.set_manifest_digest,
+            overlay=record.overlay_manifest_digest,
             slots=[_s.name for _s in unmounted],
         )
         self._apply_again(record, unmounted, after="remounted")
@@ -1368,13 +1382,13 @@ class ParameterSetStore:
         self, record: AppliedRecord, slots: list[RecordedSlot], *, after: str
     ) -> None:
         """Run the `apply` of `slots`, mounted at otaclient's start: one that fails is
-        recorded, the set kept."""
+        recorded, the overlay kept."""
         try:
             self._reboot_required(self._run_applies(slots), after)
         except Exception as e:
             logger.error(f"the apply of the slots mounted again failed: {e}")
             self.record_event(
-                "apply_failed", set=record.set_manifest_digest, error=str(e)
+                "apply_failed", overlay=record.overlay_manifest_digest, error=str(e)
             )
 
     def _record_running(self, record: AppliedRecord, mismatch: str | None) -> None:
@@ -1388,7 +1402,7 @@ class ParameterSetStore:
                 "tree_mismatch",
                 reason=mismatch,
                 boot_id=_boot,
-                set=record.set_manifest_digest,
+                overlay=record.overlay_manifest_digest,
             )
 
     def _reboot_required(self, required: bool, after: str) -> None:
@@ -1409,16 +1423,16 @@ class ParameterSetStore:
         mount_points: list[str] | None = None,
         evidence: dict[str, Any] | None = None,
     ) -> None:
-        """Drop the applied set: the slot reports the base again (when its records
-        are still this set's release), the set leaves `applied/`, its mounts go, then
-        the unpacked files. No `apply` runs: the slots go back to the base's when what
-        reads them restarts.
+        """Drop the applied overlay: the slot reports the base again (when its records
+        are still this overlay's release), the overlay leaves `applied/`, its mounts go,
+        then the unpacked files. No `apply` runs: the slots go back to the base's when
+        what reads them restarts.
 
         Without a `record` to go by (unreadable, or not this slot's), the slot's
         records are left as they are; what is unmounted is `mount_points` (none for
         an unreadable record: the boot mounts none of it), and what the history says
-        of the set is `evidence`."""
-        _what = record.describe() if record else "the applied set"
+        of the overlay is `evidence`."""
+        _what = record.describe() if record else "the applied overlay"
         logger.error(f"{_what} does not hold ({why}): dropping it")
         _evidence = record.evidence() if record else (evidence or {})
         try:
@@ -1432,7 +1446,7 @@ class ParameterSetStore:
                     version_detail=record.base_version_detail,
                 )
             _points = [*self._paths(record), *(mount_points or [])]
-            # first, by a rename, the set leaves applied/: whatever fails below,
+            # first, by a rename, the overlay leaves applied/: whatever fails below,
             #   neither a later boot nor otaclient's next start lays it again
             self._set_aside_applied()
             self._unmount(_points)
@@ -1446,26 +1460,26 @@ class ParameterSetStore:
     # ------ at a full OTA ------ #
 
     def carry_history_to(self, standby_root: Path | None, *, to_version: str) -> None:
-        """At a full update, which writes a new slot from an image: the applied set
+        """At a full update, which writes a new slot from an image: the applied overlay
         stays behind, and the history says so. Never raises.
 
-        A store on the running slot's own root filesystem is not in the new slot:
-        the history is copied into `standby_root`, with that line, unless the way to
-        the store there is not root's alone (a link the new image has on it, say).
-        A store elsewhere (a partition of its own, shared by the slots), or a new slot
-        written as an image (no `standby_root`), keeps the set: the line is added
-        where it is (`shared`), and when the store holds a set, so is the mark that a
-        full update was staged (`BASE_CHANGE_FNAME`): the new slot may run the same
-        image, and only the slot's records then tell it from the one the set was
-        applied on (`whose_set`)."""
+        A store on the running slot's own root filesystem is not in the new slot: the
+        history is copied into `standby_root`, with that line, unless the way to the
+        store there is not root's alone (a link the new image has on it, say). A store
+        elsewhere (a partition of its own, shared by the slots), or a new slot written
+        as an image (no `standby_root`), keeps the overlay: the line is added where it
+        is (`shared`), and when the store holds an overlay, so is the mark that a full
+        update was staged (`BASE_CHANGE_FNAME`): the new slot may run the same image,
+        and only the slot's records then tell it from the one the overlay was applied on
+        (`whose_overlay`)."""
         try:
             _record = self.applied_record()
             if _record is None and not self.history_file.exists():
-                return  # no set was ever applied here: nothing to carry
+                return  # no overlay was ever applied here: nothing to carry
             _left_behind = {
                 "reason": f"full OTA to {to_version}",
-                "set": _record.set_manifest_digest if _record else None,
-                "set_version": _record.set_version if _record else None,
+                "overlay": _record.overlay_manifest_digest if _record else None,
+                "overlay_version": _record.overlay_version if _record else None,
             }
             if standby_root is None or self.is_shared():
                 if _record is not None and self.why_not_trusted() is None:
@@ -1481,34 +1495,33 @@ class ParameterSetStore:
                     )
                 self.record_event("left_behind", shared=True, **_left_behind)
                 return
-            _dst = standby_root / Path(cfg.PARAMETER_SET_DPATH).relative_to("/")
+            _dst = standby_root / Path(cfg.OVERLAY_DPATH).relative_to("/")
             try:
                 ensure_private_dir(_dst, mode=STORE_MODE)
             except PermissionError as e:
-                logger.warning(f"not carrying the parameter set history: {e}")
+                logger.warning(f"not carrying the overlay history: {e}")
                 return
             for _fname in (HISTORY_ROTATED_FNAME, HISTORY_FNAME):
                 if (self.root / _fname).exists():
                     shutil.copyfile(self.root / _fname, _dst / _fname)
-            ParameterSetStore(root=_dst).record_event(
+            OverlayStore(root=_dst).record_event(
                 "left_behind", shared=False, **_left_behind
             )
         except Exception as e:
-            logger.warning(f"failed to carry the parameter set history: {e!r}")
+            logger.warning(f"failed to carry the overlay history: {e!r}")
 
 
-def mount_parameter_set_command() -> int:
-    """`otaclient mount-parameter-set`: lay the applied parameter set at boot.
+def mount_overlay_command() -> int:
+    """`otaclient mount-overlay`: lay the applied overlay at boot.
 
     Run by a oneshot unit ordered before local-fs.target
-    (samples/otaclient-parameter-set.service_app), in the app image as otaclient runs
-    there: mounted in the host's namespace, the host's root seen at its chroot path.
-    It needs the store and the running image's version file only: no gRPC and no
-    boot controller, and it bounds each command it runs. Importing otaclient's
-    configuration still parses ecu_info.yaml and proxy_info.yaml, which it does not
-    use: before /boot is mounted, that logs that they were not found. Returns the
-    exit code: 0 when every slot of the applied set is mounted (or nothing is to be),
-    1 when one is not. Never raises.
+    (samples/otaclient-overlay.service_app), in the app image as otaclient runs there:
+    mounted in the host's namespace, the host's root seen at its chroot path. It needs
+    the store and the running image's version file only: no gRPC and no boot controller,
+    and it bounds each command it runs. Importing otaclient's configuration still parses
+    ecu_info.yaml and proxy_info.yaml, which it does not use: before /boot is mounted,
+    that logs that they were not found. Returns the exit code: 0 when every slot of the
+    applied overlay is mounted (or nothing is to be), 1 when one is not. Never raises.
     """
     logging.basicConfig(level=logging.INFO, format=cfg.LOG_FORMAT)
     try:
@@ -1516,8 +1529,8 @@ def mount_parameter_set_command() -> int:
         #   store), so a module-level import would be a cycle
         from otaclient.boot_control._image_version_file import running_image_id
 
-        _ok = ParameterSetStore().mount_at_boot(running_image_id())
+        _ok = OverlayStore().mount_at_boot(running_image_id())
     except Exception as e:
-        logger.exception(f"failed to mount the parameter set: {e!r}")
+        logger.exception(f"failed to mount the overlay: {e!r}")
         return 1
     return 0 if _ok else 1

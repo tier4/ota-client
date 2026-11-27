@@ -288,15 +288,15 @@ class TestPreservePersistEntryInputValidation:
 
 class TestExclude:
     """What is excluded is never preserved, also when an entry holds it: the
-    parameter set store under a listed /opt/data, say."""
+    overlay store under a listed /opt/data, say."""
 
-    STORE = "/opt/data/ota/parameter-set"
+    STORE = "/opt/data/ota/overlay"
 
     @pytest.fixture
     def handler(self, tmp_path: Path, mocker: MockerFixture) -> PersistFilesHandler:
         _src = tmp_path / "src"
-        (_src / "opt/data/ota/parameter-set/applied/tree").mkdir(parents=True)
-        (_src / "opt/data/ota/parameter-set/history.jsonl").write_text("{}\n")
+        (_src / "opt/data/ota/overlay/applied/tree").mkdir(parents=True)
+        (_src / "opt/data/ota/overlay/history.jsonl").write_text("{}\n")
         (_src / "opt/data/ota/download").mkdir(parents=True)
         (_src / "opt/data/ota/download/package").write_text("kept")
         (_src / "opt/data/maps").mkdir()
@@ -319,7 +319,7 @@ class TestExclude:
         handler.preserve_persist_entry(entry)
         _dst = tmp_path / "dst"
         assert (_dst / "opt/data/ota/download/package").read_text() == "kept"
-        assert not (_dst / "opt/data/ota/parameter-set").exists()
+        assert not (_dst / "opt/data/ota/overlay").exists()
 
     @pytest.mark.parametrize(
         "entry",
@@ -328,7 +328,7 @@ class TestExclude:
             f"{STORE}/history.jsonl",
             f"{STORE}/applied/tree",
             # a way around it that names it otherwise
-            "/opt/data/maps/../ota/parameter-set",
+            "/opt/data/maps/../ota/overlay",
             f"{STORE}/./applied",
         ),
     )
@@ -339,7 +339,7 @@ class TestExclude:
         assert not (tmp_path / "dst/opt").exists()
 
 
-def test_the_updates_persist_files_never_take_the_parameter_set_store(
+def test_the_updates_persist_files_never_take_the_overlay_store(
     tmp_path: Path, mocker: MockerFixture
 ):
     from otaclient.configs.cfg import cfg
@@ -349,7 +349,7 @@ def test_the_updates_persist_files_never_take_the_parameter_set_store(
     _update_libs.process_persistents(
         ["/opt/data"], active_slot_mp=tmp_path / "a", standby_slot_mp=tmp_path / "b"
     )
-    assert _handler_cls.call_args.kwargs["exclude"] == (cfg.PARAMETER_SET_DPATH,)
+    assert _handler_cls.call_args.kwargs["exclude"] == (cfg.OVERLAY_DPATH,)
     _handler_cls.return_value.preserve_persist_entry.assert_called_once_with(
         "/opt/data"
     )

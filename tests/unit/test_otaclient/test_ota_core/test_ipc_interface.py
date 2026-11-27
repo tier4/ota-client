@@ -40,7 +40,7 @@ from otaclient._types import (
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control.protocol import (
-    ParameterSetBootControllerProtocol,
+    OverlayBootControllerProtocol,
     PartitionLayoutBootControllerProtocol,
 )
 from otaclient.errors import OTAErrorRecoverable
@@ -50,7 +50,7 @@ from otaclient.ota_core import (
     OTAUpdaterForLegacyOTAImage,
     OTAUpdaterForOTAImageV1,
 )
-from otaclient.ota_core._parameter_set import OTAUpdaterForParameterSet
+from otaclient.ota_core._overlay import OTAUpdaterForOverlay
 from otaclient.ota_core._partition_image import OTAUpdaterForPartitionImage
 
 OTA_CORE_MAIN_MODULE = ota_core._main.__name__
@@ -160,9 +160,7 @@ class TestOTAClient:
         self.ota_client.boot_controller = _boot_controller
         self.ota_client.ca_store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
-        mocker.patch(
-            f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=False
-        )
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_overlay_for", return_value=False)
         _file_based_updater = mocker.patch(
             f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOTAImageV1"
         )
@@ -232,7 +230,7 @@ class TestOTAClient:
         )
 
     @pytest.mark.parametrize("reboot", (False, True))
-    def test_a_parameter_set_is_laid_over_the_base_and_ends_at_success(
+    def test_an_overlay_is_laid_over_the_base_and_ends_at_success(
         self, mocker: pytest_mock.MockerFixture, reboot: bool
     ):
         """No standby slot and no reboot: SUCCESS in the same session, reported with
@@ -242,13 +240,13 @@ class TestOTAClient:
         self.ota_client.boot_controller = _boot_controller
         self.ota_client.ca_store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
-        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=True)
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_overlay_for", return_value=True)
         _order = mocker.MagicMock()
-        _updater = mocker.MagicMock(spec=OTAUpdaterForParameterSet)
+        _updater = mocker.MagicMock(spec=OTAUpdaterForOverlay)
         _updater.execute.return_value = reboot
         _order.attach_mock(_updater.reboot_for_apply, "reboot_for_apply")
         mocker.patch(
-            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForParameterSet", return_value=_updater
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOverlay", return_value=_updater
         )
         _file_based = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOTAImageV1")
         mocker.patch.object(
@@ -270,7 +268,7 @@ class TestOTAClient:
                 url_base=self.OTA_IMAGE_URL,
                 cookies_json=self.UPDATE_COOKIES_JSON,
                 request_id="test-request-id",
-                session_id="test_a_parameter_set",
+                session_id="test_an_overlay",
             )
         )
 
@@ -281,7 +279,7 @@ class TestOTAClient:
         _calls = [(_c[0], _c[1]) for _c in _order.mock_calls]
         _success = (
             "report",
-            ("OTAStatusChangeReport", OTAStatus.SUCCESS, None, "test_a_parameter_set"),
+            ("OTAStatusChangeReport", OTAStatus.SUCCESS, None, "test_an_overlay"),
         )
         assert _success in _calls, "SUCCESS is reported, in this session"
         assert (
@@ -294,21 +292,21 @@ class TestOTAClient:
             )
         else:
             _updater.reboot_for_apply.assert_not_called()
-        # the app image goes on serving: no exit after a set in place
+        # the app image goes on serving: no exit after an overlay in place
         _exit.assert_not_called()
 
-    def test_a_downloaded_client_steps_back_after_a_set_once_sub_ecus_are_done(
+    def test_a_downloaded_client_steps_back_after_an_overlay_once_sub_ecus_are_done(
         self, mocker: pytest_mock.MockerFixture
     ):
         _boot_controller = mocker.MagicMock(spec=BootControllerBase)
         self.ota_client.boot_controller = _boot_controller
         self.ota_client.ca_store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
-        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=True)
-        _updater = mocker.MagicMock(spec=OTAUpdaterForParameterSet)
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_overlay_for", return_value=True)
+        _updater = mocker.MagicMock(spec=OTAUpdaterForOverlay)
         _updater.execute.return_value = False
         mocker.patch(
-            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForParameterSet", return_value=_updater
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOverlay", return_value=_updater
         )
         mocker.patch.object(type(self.ota_client._metrics), "publish")
         mocker.patch.object(
@@ -347,8 +345,8 @@ class TestOTAClient:
         self.ota_client.boot_controller = _boot_controller
         self.ota_client.ca_store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
-        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=None)
-        _set = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForParameterSet")
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_overlay_for", return_value=None)
+        _overlay = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOverlay")
         _file_based = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOTAImageV1")
         mocker.patch.object(type(self.ota_client._metrics), "publish")
         mocker.patch.object(self.ota_client, "_exit_from_dynamic_client")
@@ -363,23 +361,23 @@ class TestOTAClient:
             )
         )
 
-        _set.assert_not_called()
+        _overlay.assert_not_called()
         _file_based.assert_not_called()
         assert self.ota_client.live_ota_status == OTAStatus.FAILURE
         _reason = _boot_controller.store_failure_info.call_args.kwargs["failure_reason"]
         _code = int(ota_errors.OTAErrorCode.E_OTAMETA_DOWNLOAD_FAILED)
         assert _reason.startswith(f"E{_code}: "), _reason
 
-    def test_a_parameter_set_on_a_partition_layout_is_laid_as_on_any_other(
+    def test_an_overlay_on_a_partition_layout_is_laid_as_on_any_other(
         self, mocker: pytest_mock.MockerFixture
     ):
-        """The set is laid over the running slot, not through the DPI's installer:
+        """The overlay is laid over the running slot, not through the DPI's installer:
         the partition updater is not involved."""
 
         class _PartitionLayoutBootController(
             BootControllerProtocol,
             PartitionLayoutBootControllerProtocol,
-            ParameterSetBootControllerProtocol,
+            OverlayBootControllerProtocol,
             Protocol,
         ): ...
 
@@ -388,11 +386,11 @@ class TestOTAClient:
         self.ota_client.boot_controller = _boot_controller
         self.ota_client.ca_store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
-        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=True)
-        _updater = mocker.MagicMock(spec=OTAUpdaterForParameterSet)
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_overlay_for", return_value=True)
+        _updater = mocker.MagicMock(spec=OTAUpdaterForOverlay)
         _updater.execute.return_value = False
         _updater_cls = mocker.patch(
-            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForParameterSet", return_value=_updater
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOverlay", return_value=_updater
         )
         _partition_updater_cls = mocker.patch(
             f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForPartitionImage"
@@ -405,7 +403,7 @@ class TestOTAClient:
                 url_base=self.OTA_IMAGE_URL,
                 cookies_json=self.UPDATE_COOKIES_JSON,
                 request_id="test-request-id",
-                session_id="test_a_parameter_set_on_a_partition_layout",
+                session_id="test_an_overlay_on_a_partition_layout",
             )
         )
 
@@ -416,7 +414,7 @@ class TestOTAClient:
         _boot_controller.pre_update.assert_not_called()
         assert self.ota_client.live_ota_status == OTAStatus.SUCCESS
 
-    def test_a_boot_controller_without_the_parameter_set_protocol_refuses_a_set(
+    def test_a_boot_controller_without_the_overlay_protocol_refuses_an_overlay(
         self, mocker: pytest_mock.MockerFixture
     ):
         """Every boot controller provides it; one that would not is refused before
@@ -425,8 +423,8 @@ class TestOTAClient:
         self.ota_client.boot_controller = _boot_controller
         self.ota_client.ca_store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
-        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=True)
-        _updater_cls = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForParameterSet")
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_overlay_for", return_value=True)
+        _updater_cls = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOverlay")
         mocker.patch.object(type(self.ota_client._metrics), "publish")
 
         self.ota_client.update(
@@ -457,9 +455,7 @@ class TestOTAClient:
         self.ota_client.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
         self.ota_client.ca_store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
-        mocker.patch(
-            f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=False
-        )
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_overlay_for", return_value=False)
         _file_based_updater = mocker.MagicMock(spec=OTAUpdaterForOTAImageV1)
         _file_based_updater_cls = mocker.patch(
             f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOTAImageV1",
@@ -796,21 +792,19 @@ class TestOTAClient:
         assert self.ota_client.live_ota_status == OTAStatus.SUCCESS
 
 
-class TestParameterSetAtStartup:
+class TestOverlayAtStartup:
     def test_the_set_is_checked_against_the_running_image(
         self, mocker: pytest_mock.MockerFixture
     ):
         """The boot controller is the slot's records; the base's come back typed."""
         _store = mocker.MagicMock()
-        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.ParameterSetStore", return_value=_store)
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.OverlayStore", return_value=_store)
         mocker.patch(
             f"{OTA_CORE_MAIN_MODULE}.running_image_id", return_value="base-image"
         )
         _boot_controller = mocker.MagicMock(spec=BootControllerBase)
 
-        ota_core._main._check_parameter_set_at_startup(
-            _boot_controller, base_committed=True
-        )
+        ota_core._main._check_overlay_at_startup(_boot_controller, base_committed=True)
 
         _store.check_at_startup.assert_called_once_with(
             "base-image", slot_records=_boot_controller, base_committed=True
@@ -831,7 +825,7 @@ class TestParameterSetAtStartup:
         self, status: OTAStatus, committed: bool
     ):
         """A trial boot the boot controller did not commit (FAILURE) may still fall
-        back to the base a set of another base was applied on: not dropped then."""
+        back to the base an overlay of another base was applied on: not dropped then."""
         assert ota_core._main._base_committed(status) is committed
 
     def test_the_downloaded_client_never_takes_the_base_as_committed(
@@ -853,12 +847,10 @@ class TestParameterSetAtStartup:
         _store.applied_dir = tmp_path / "applied"
         _store.previous_dir = tmp_path / "previous"
         _store.discard_dir = tmp_path / "discard"
-        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.ParameterSetStore", return_value=_store)
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.OverlayStore", return_value=_store)
         _load = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.running_image_id")
         _boot_controller = mocker.MagicMock(spec=BootControllerBase)
-        ota_core._main._check_parameter_set_at_startup(
-            _boot_controller, base_committed=True
-        )
+        ota_core._main._check_overlay_at_startup(_boot_controller, base_committed=True)
         _load.assert_not_called()
         _store.check_at_startup.assert_not_called()
 
@@ -867,9 +859,9 @@ class TestParameterSetAtStartup:
     ):
         _store = mocker.MagicMock()
         _store.check_at_startup.side_effect = OSError("cannot read")
-        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.ParameterSetStore", return_value=_store)
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.OverlayStore", return_value=_store)
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.running_image_id", return_value="")
-        ota_core._main._check_parameter_set_at_startup(
+        ota_core._main._check_overlay_at_startup(
             mocker.MagicMock(spec=BootControllerBase), base_committed=True
         )
         _store.check_at_startup.assert_called_once()
@@ -889,9 +881,7 @@ class TestParameterSetAtStartup:
         _bc.load_version.return_value = "1.0.0"
         _bc.get_booted_ota_status.return_value = status
         _bc.get_booted_failure_info.return_value = None
-        _checked = mocker.patch(
-            f"{OTA_CORE_MAIN_MODULE}._check_parameter_set_at_startup"
-        )
+        _checked = mocker.patch(f"{OTA_CORE_MAIN_MODULE}._check_overlay_at_startup")
         mocker.patch(
             f"{OTA_CORE_MAIN_MODULE}.get_boot_controller",
             return_value=mocker.MagicMock(return_value=_bc),
@@ -903,19 +893,19 @@ class TestParameterSetAtStartup:
             shm_metrics_reader=mocker.MagicMock(),
         )
         _checked.assert_called_once_with(_bc, base_committed=committed)
-        # and the same to a parameter set update in this boot
+        # and the same to an overlay update in this boot
         assert _client._base_committed is committed
 
-    @pytest.mark.parametrize("takes_a_set", (True, False))
-    def test_otaclient_checks_the_set_before_it_loads_the_version(
-        self, mocker: pytest_mock.MockerFixture, takes_a_set: bool
+    @pytest.mark.parametrize("takes_an_overlay", (True, False))
+    def test_otaclient_checks_the_overlay_before_it_loads_the_version(
+        self, mocker: pytest_mock.MockerFixture, takes_an_overlay: bool
     ):
-        """A set dropped at startup gives the slot its base's version back: what is
-        reported first is that, not the set's."""
+        """An overlay dropped at startup gives the slot its base's version back: what
+        is reported first is that, not the overlay's."""
         _bc = mocker.MagicMock(
-            spec=BootControllerBase if takes_a_set else BootControllerProtocol
+            spec=BootControllerBase if takes_an_overlay else BootControllerProtocol
         )
-        _bc.load_version.return_value = "set-version"
+        _bc.load_version.return_value = "overlay-version"
         _bc.get_booted_ota_status.return_value = OTAStatus.SUCCESS
         _bc.get_booted_failure_info.return_value = None
 
@@ -923,7 +913,7 @@ class TestParameterSetAtStartup:
             boot_controller.load_version.return_value = "base-version"
 
         _checked = mocker.patch(
-            f"{OTA_CORE_MAIN_MODULE}._check_parameter_set_at_startup",
+            f"{OTA_CORE_MAIN_MODULE}._check_overlay_at_startup",
             side_effect=_check,
         )
         mocker.patch(
@@ -942,10 +932,10 @@ class TestParameterSetAtStartup:
             for _r in iter(_queue.get_nowait, None)
             if type(_r.payload).__name__ == "SetOTAClientMetaReport"
         )
-        if takes_a_set:
+        if takes_an_overlay:
             # once the boot controller concluded the boot, with what it concluded
             _checked.assert_called_once_with(_bc, base_committed=True)
             assert _meta.firmware_version == "base-version"
         else:
             _checked.assert_not_called()
-            assert _meta.firmware_version == "set-version"
+            assert _meta.firmware_version == "overlay-version"

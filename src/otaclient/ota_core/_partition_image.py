@@ -92,7 +92,7 @@ from otaclient.ota_core._update_libs import (
     metadata_download_err_handler,
     raise_on_download_resources_failed,
 )
-from otaclient.parameter_set import ParameterSetStore
+from otaclient.overlay import OverlayStore
 from otaclient_common import human_readable_size
 from otaclient_common._io import ensure_private_dir
 from otaclient_common.common import urljoin_ensure_base
@@ -928,10 +928,10 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
             # ------ post update ------ #
             _now = self._report_phase(UpdatePhase.PROCESSING_POSTUPDATE)
             self._metrics.post_update_start_timestamp = _now
-            # the new slot starts with its base's defaults: a parameter set applied
+            # the new slot starts with its base's defaults: an overlay applied
             #   here stays behind in the store on optdata, which the slots share,
             #   and the new slot's otaclient drops it once its base is committed
-            ParameterSetStore().carry_history_to(None, to_version=self.update_version)
+            OverlayStore().carry_history_to(None, to_version=self.update_version)
             with ota_errors.raise_as_ota_error(
                 ota_errors.PostUpdateFailed, "post-update failed", module=__name__
             ):

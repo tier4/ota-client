@@ -39,7 +39,7 @@ from pathlib import Path
 
 from otaclient._types import VersionDetail
 from otaclient.configs.cfg import cfg
-from otaclient.parameter_set import ParameterSetStore
+from otaclient.overlay import OverlayStore
 from otaclient_common import _env, replace_root
 from otaclient_common._typing import StrOrPath
 
@@ -109,23 +109,23 @@ def load_image_version_detail(*, root: StrOrPath | None = None) -> VersionDetail
 
 def running_image_id() -> str:
     """The running image's ID from its version file, "" when it has none (or none
-    otaclient reads): what a parameter set's `base_image_id` is compared with."""
+    otaclient reads): what an overlay's `base_image_id` is compared with."""
     _detail = load_image_version_detail()
     return _detail.image_id if _detail else ""
 
 
-def _release_of_the_applied_parameter_set(
+def _release_of_the_applied_overlay(
     recorded: VersionDetail, running_image_id: str
 ) -> bool:
-    """Whether `recorded` is the release of the parameter set applied on this slot,
-    over the running image: a parameter image has its own image ID, and the running
-    image's version file does not change with it. A set that is not laid is not:
-    one in a store that is not root's alone, or one this slot cannot tell is the
-    running base's (`ParameterSetStore.whose_set`, without the slot's records)."""
-    _store = ParameterSetStore()
+    """Whether `recorded` is the release of the overlay applied on this slot,
+    over the running image: an overlay image has its own image ID, and the running
+    image's version file does not change with it. An overlay that is not laid is
+    not: one in a store that is not root's alone, or one this slot cannot tell is
+    the running base's (`OverlayStore.whose_overlay`, without the slot's records)."""
+    _store = OverlayStore()
     if _store.why_not_trusted() is not None:
         return False
-    _applied, _why = _store.whose_set(running_image_id)
+    _applied, _why = _store.whose_overlay(running_image_id)
     return (
         _why is None and _applied is not None and _applied.image_id == recorded.image_id
     )
@@ -141,9 +141,9 @@ def resolve_active_slot_version_detail(
       of another image (the slot was written by someone else since, or is not the one
       otaclient installed into) would pin the release to an image that does not run.
     - It has none, or one that is not read (see the module): otaclient's record.
-    - The record is the release of a parameter set applied over the running image:
-      the record, with the parameter image's ID the release named. The set changes
-      the slots, not the image, so the version file still names the base.
+    - The record is the release of an overlay applied over the running image:
+      the record, with the overlay image's ID the release named. The overlay
+      changes the slots, not the image, so the version file still names the base.
 
     The version (`firmware_version`) is not resolved here and stays the recorded one,
     as the file carries none. A record of another image therefore still shows its
@@ -162,9 +162,9 @@ def resolve_active_slot_version_detail(
         return _from_image
     if _recorded.image_id == _from_image.image_id:
         return _recorded
-    if _release_of_the_applied_parameter_set(_recorded, _from_image.image_id):
+    if _release_of_the_applied_overlay(_recorded, _from_image.image_id):
         logger.info(
-            f"release {_recorded.release_name} is a parameter set (image "
+            f"release {_recorded.release_name} is an overlay (image "
             f"{_recorded.image_id}) over the running image {_from_image.image_id}"
         )
         return _recorded

@@ -28,7 +28,7 @@ from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control._ota_config_files import OTAConfigFiles
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
-from otaclient.boot_control.protocol import ParameterSetBootControllerProtocol
+from otaclient.boot_control.protocol import OverlayBootControllerProtocol
 
 
 def _make_concrete_boot_controller_cls(mocker: MockerFixture):
@@ -117,15 +117,15 @@ class TestBootControllerBase:
 
         assert controller.load_version_detail() == _from_image
 
-    def test_it_takes_a_parameter_set(self, controller):
-        assert isinstance(controller, ParameterSetBootControllerProtocol)
+    def test_it_takes_an_overlay(self, controller):
+        assert isinstance(controller, OverlayBootControllerProtocol)
         # the standby is switched to by post_update only, never armed before it
         assert controller.standby_armed_in_this_boot() is False
 
     def test_the_same_slot_is_rebooted_by_a_plain_reboot(
         self, controller, mocker: MockerFixture
     ):
-        """What a parameter set whose changed slot's apply is `reboot` ends with:
+        """What an overlay whose changed slot's apply is `reboot` ends with:
         nothing was switched, so the slot that comes up is the running one."""
         _reboot = mocker.patch.object(
             _base.cmdhelper, "reboot", side_effect=SystemExit(1)

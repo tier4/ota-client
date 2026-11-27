@@ -56,14 +56,14 @@ def check_if_ota_image_v1(base_url: str, *, downloader_pool: DownloaderPool) -> 
         downloader_pool.release_instance()
 
 
-def has_parameter_set_for(
+def has_overlay_for(
     base_url: str, image_id: ImageIdentifier, *, downloader_pool: DownloaderPool
 ) -> bool | None:
-    """Whether the OTA image v1 at <base_url> carries a parameter set as the payload
+    """Whether the OTA image v1 at <base_url> carries an overlay as the payload
     of <image_id>, from its `index.json`; None when that could not be told.
 
     NOTE: the index is not verified here: this only picks the updater, and the
-        parameter set updater verifies it, as every v1 updater does, before it
+        overlay updater verifies it, as every v1 updater does, before it
         believes anything in it. An answer from the server that is not an index this
         client reads (a 4xx, a body that does not parse, an index larger than
         INDEX_MAX_SIZE) is a False, leaving the image to the updater it would have
@@ -88,14 +88,14 @@ def has_parameter_set_for(
                             logger.warning(f"{_index_url} is larger than an index")
                             return False
                         return (
-                            ImageIndex.parse_metafile(_raw.decode()).find_parameter_set(
+                            ImageIndex.parse_metafile(_raw.decode()).find_overlay(
                                 image_id
                             )
                             is not None
                         )
                     if resp.status_code < HTTPStatus.INTERNAL_SERVER_ERROR:
                         logger.warning(
-                            f"{_index_url}: HTTP {resp.status_code}, not a parameter set"
+                            f"{_index_url}: HTTP {resp.status_code}, not an overlay"
                         )
                         return False
                     _last = f"HTTP {resp.status_code}"

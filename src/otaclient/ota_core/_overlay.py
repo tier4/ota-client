@@ -11,8 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""An update that lays a parameter set over the running base: no standby slot, no
-reboot (unless a slot's `apply` asks for one). See `otaclient.parameter_set`."""
+"""An update that lays an overlay over the running base: no standby slot, no
+reboot (unless a slot's `apply` asks for one). See `otaclient.overlay`."""
 
 from __future__ import annotations
 
@@ -28,20 +28,20 @@ from pathlib import Path
 
 from ota_image_libs.common.oci_spec import Sha256Digest
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier
-from ota_image_libs.v1.parameter_set.layer import (
-    ParameterLayerInfo,
-    ParameterLayerInvalid,
-    read_parameter_layer,
+from ota_image_libs.v1.overlay.layer import (
+    OverlayLayerInfo,
+    OverlayLayerInvalid,
+    read_overlay_layer,
 )
-from ota_image_libs.v1.parameter_set.schema import (
-    ParameterSetConfig,
-    ParameterSetManifest,
+from ota_image_libs.v1.overlay.schema import (
+    OverlayConfig,
+    OverlayManifest,
 )
-from ota_image_libs.v1.parameter_set.slots import (
+from ota_image_libs.v1.overlay.slots import (
     APPLY_REBOOT,
-    ParameterSlotRef,
-    apply_comes_with_set,
-    check_applies_in_set,
+    OverlaySlotRef,
+    apply_comes_with_overlay,
+    check_applies_in_overlay,
     check_slots_in_tree,
     slot_of,
 )
@@ -56,7 +56,7 @@ from otaclient.boot_control._platform_paths import (
     APPLY_MAY_BE_IN,
     platform_reserved_paths,
 )
-from otaclient.boot_control.protocol import ParameterSetBootControllerProtocol
+from otaclient.boot_control.protocol import OverlayBootControllerProtocol
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.ota_core._abort_handler import AbortHandler
 from otaclient.ota_core._common import download_exception_handler
@@ -69,13 +69,13 @@ from otaclient.ota_core._updater_base import (
     OTAUpdateInitializer,
     OTAUpdateInterfaceArgs,
 )
-from otaclient.parameter_set import (
+from otaclient.overlay import (
     CONFIG_FNAME,
     MANIFEST_FNAME,
     TREE_DNAME,
     AppliedRecord,
-    ParameterSetFailed,
-    ParameterSetStore,
+    OverlayFailed,
+    OverlayStore,
     RecordedSlot,
 )
 from otaclient_common import _env
@@ -86,8 +86,8 @@ logger = logging.getLogger(__name__)
 LAYER_FNAME = "layer.tar.zst"
 
 
-BOOT_UNIT = "otaclient-parameter-set.service"
-"""The unit that lays the applied set at boot (`otaclient mount-parameter-set`)."""
+BOOT_UNIT = "otaclient-overlay.service"
+"""The unit that lays the applied overlay at boot (`otaclient mount-overlay`)."""
 BOOT_UNIT_WANTS = tuple(
     f"{_d}/local-fs.target.wants/{BOOT_UNIT}"
     for _d in ("/etc/systemd/system", "/usr/lib/systemd/system", "/lib/systemd/system")
@@ -101,7 +101,7 @@ def reserved_paths(*, host_root: str = cfg.CANONICAL_ROOT) -> tuple[str, ...]:
     /opt/ota, /opt/data/ota, /usr/lib/ota, /usr/share/ota): never a slot's, nor
     inside one.
 
-    The parameter set store is among them (a slot over it would hide the set it is
+    The overlay store is among them (a slot over it would hide the overlay it is
     laid from; the library reserves /opt/data/ota, which holds it, as well), with
     what otaclient and the OTA platform keep outside the slots' own files
     (`platform_reserved_paths`, the DPI this ECU names as it resolves on the host at
@@ -119,7 +119,7 @@ def reserved_paths(*, host_root: str = cfg.CANONICAL_ROOT) -> tuple[str, ...]:
         cfg.OTA_RESOURCES_STORE,
         cfg.OTA_META_STORE,
         cfg.OTA_DOWNLOAD_DIR,
-        cfg.PARAMETER_SET_DPATH,
+        cfg.OVERLAY_DPATH,
         *platform_reserved_paths(
             dpi_executable=ecu_info.dpi_executable, host_root=host_root
         ),
@@ -131,9 +131,7 @@ def _within(path: str, top: str) -> bool:
     return path == top or path.startswith(top.rstrip("/") + "/")
 
 
-def _check_no_slot_over(
-    slots: Iterable[ParameterSlotRef], paths: Iterable[str]
-) -> None:
+def _check_no_slot_over(slots: Iterable[OverlaySlotRef], paths: Iterable[str]) -> None:
     """No slot is over one of `paths` (the same path, inside, or containing it)."""
     for _slot in slots:
         for _path in paths:
@@ -144,43 +142,43 @@ def _check_no_slot_over(
                 )
 
 
-class OTAUpdaterForParameterSet(OTAUpdateInitializer):
-    """An OTA update whose payload for this ECU is a parameter set.
+class OTAUpdaterForOverlay(OTAUpdateInitializer):
+    """An OTA update whose payload for this ECU is an overlay.
 
     The phases are the ones every update reports; the standby slot is not touched and
-    the update ends without a reboot, at SUCCESS, with the set's release recorded as
-    the current slot's. A set that cannot be put in place, or whose release cannot be
-    recorded, leaves the slot with the set it had.
+    the update ends without a reboot, at SUCCESS, with the overlay's release recorded as
+    the current slot's. An overlay that cannot be put in place, or whose release cannot
+    be recorded, leaves the slot with the overlay it had.
 
-    An abort is taken until the set is about to be switched to (the staging is
+    An abort is taken until the overlay is about to be switched to (the staging is
     discarded); from there on it is refused, as at the reboot of any other update.
 
-    The set names no base: it is laid over whatever image the ECU runs, as long as
+    The overlay names no base: it is laid over whatever image the ECU runs, as long as
     that image has room for its slots (a slot directory it lacks is made) and the
-    applies the set does not carry itself. Which images a set suits is decided where
-    the release is evaluated.
+    applies the overlay does not carry itself. Which images an overlay suits is decided
+    where the release is evaluated.
     """
 
     def __init__(
         self,
         *,
         ca_store: CAStoreMap,
-        boot_controller: ParameterSetBootControllerProtocol,
+        boot_controller: OverlayBootControllerProtocol,
         abort_handler: AbortHandler,
         image_identifier: ImageIdentifier,
         base_committed: bool,
-        store: ParameterSetStore | None = None,
+        store: OverlayStore | None = None,
         host_root: Path | None = None,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ) -> None:
         super().__init__(**kwargs)
         self._boot_controller = boot_controller
         # whether the running base is committed: until it is, the platform may still
-        #   fall back to the base a set in the store was applied on
+        #   fall back to the base an overlay in the store was applied on
         self._base_committed = base_committed
         self._abort_handler = abort_handler
         self._image_id = image_identifier
-        self._store = store or ParameterSetStore()
+        self._store = store or OverlayStore()
         # where the running image's files are seen: what a slot's `apply` runs in
         self._host_root = host_root or Path(
             _env.get_dynamic_client_chroot_path() or cfg.CANONICAL_ROOT
@@ -188,12 +186,12 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         self._ota_image_helper, self._download_helper = (
             self._create_ota_image_v1_helpers(ca_store=ca_store)
         )
-        self.manifest: ParameterSetManifest | None = None
-        self.config: ParameterSetConfig | None = None
+        self.manifest: OverlayManifest | None = None
+        self.config: OverlayConfig | None = None
         # the running image's ID, from its version file (`running_image_id`), read
         #   when the update starts
         self._running_image_id = ""
-        self._set_digest: Sha256Digest | None = None
+        self._overlay_digest: Sha256Digest | None = None
 
     def _download(
         self, batches: Generator[list[DownloadInfo]], cond: threading.Condition
@@ -202,18 +200,18 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             download_exception_handler(_fut)
 
     def _metadata(self, cond: threading.Condition) -> Generator[list[DownloadInfo]]:
-        """The set's manifest and config, downloaded against the verified index.
+        """The overlay's manifest and config, downloaded against the verified index.
 
         A manifest or config that does not parse or does not agree is an invalid
         image (ImageMetadataInvalid), as for any v1 payload."""
         _index = self._ota_image_helper.image_index
         assert _index is not None
-        _descriptor = _index.find_parameter_set(self._image_id)
+        _descriptor = _index.find_overlay(self._image_id)
         if _descriptor is None:
             raise ImageMetadataInvalid(
-                f"the OTA image carries no parameter set for {self._image_id}"
+                f"the OTA image carries no overlay for {self._image_id}"
             )
-        self._set_digest = _descriptor.digest
+        self._overlay_digest = _descriptor.digest
         _manifest_f = self._session_workdir / MANIFEST_FNAME
         with cond:
             yield [
@@ -223,9 +221,9 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             ]
             cond.wait()
         try:
-            self.manifest = ParameterSetManifest.parse_metafile(_manifest_f.read_text())
+            self.manifest = OverlayManifest.parse_metafile(_manifest_f.read_text())
         except Exception as e:
-            raise ImageMetadataInvalid(f"the set's manifest is invalid: {e}") from e
+            raise ImageMetadataInvalid(f"the overlay's manifest is invalid: {e}") from e
 
         _config_f = self._session_workdir / CONFIG_FNAME
         with cond:
@@ -236,10 +234,10 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             ]
             cond.wait()
         try:
-            self.config = ParameterSetConfig.parse_metafile(_config_f.read_text())
+            self.config = OverlayConfig.parse_metafile(_config_f.read_text())
             self.manifest.check_config(self.config)
         except Exception as e:
-            raise ImageMetadataInvalid(f"the set's config is invalid: {e}") from e
+            raise ImageMetadataInvalid(f"the overlay's config is invalid: {e}") from e
 
     def _layer(
         self, cond: threading.Condition, dst: Path
@@ -255,17 +253,17 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
 
     def _check_fits_the_running_base(self) -> None:
         """The running image has room for each slot (a directory, or none: otaclient
-        makes the mount point) and each `apply` of the base, and nothing but
-        otaclient's own set is mounted on a slot: a set the image has no room for is
-        refused before anything changes. An `apply` the set carries (inside its
+        makes the mount point) and each `apply` of the base, and nothing but otaclient's
+        own overlay is mounted on a slot: an overlay the image has no room for is
+        refused before anything changes. An `apply` the overlay carries (inside its
         slots) is checked against its layer once unpacked.
 
-        What the applied set covers is not the base's: a slot or an `apply` of the
+        What the applied overlay covers is not the base's: a slot or an `apply` of the
         base inside a slot of the applied one (and not that slot itself) would be
-        checked against the set before, and is refused too.
+        checked against the overlay before, and is refused too.
         """
         assert self.config is not None
-        self._check_the_ecu_keeps_the_set()
+        self._check_the_ecu_keeps_the_overlay()
         _reserved = reserved_paths(host_root=str(self._host_root))
         try:
             # the library refuses a slot over a reserved path and an `apply` in one:
@@ -278,11 +276,11 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             )
             _check_no_slot_over(self.config.slots, APPLY_MAY_BE_IN)
         except ValueError as e:
-            raise ota_errors.ParameterSetNotApplicable(
-                f"the running image has no room for the parameter set: {e}",
+            raise ota_errors.OverlayNotApplicable(
+                f"the running image has no room for the overlay: {e}",
                 module=__name__,
             ) from e
-        # the set of another base in a store the slots share was not laid here: it
+        # the overlay of another base in a store the slots share was not laid here: it
         #   covers nothing of this base
         _applied = self._store.applied_record_of(
             self._running_image_id, slot_records=self._boot_controller
@@ -290,77 +288,78 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         _covered = [_s.path for _s in _applied.slots] if _applied else []
         for _slot in self.config.slots:
             _of_base = [(_slot.path, "path")]
-            if not apply_comes_with_set(_slot, self.config.slots):
+            if not apply_comes_with_overlay(_slot, self.config.slots):
                 _of_base.append((_slot.apply, "apply"))
             for _path, _what in _of_base:
                 _over = next(
                     (_c for _c in _covered if _path.startswith(_c + "/")), None
                 )
                 if _over is not None:
-                    raise ota_errors.ParameterSetNotApplicable(
+                    raise ota_errors.OverlayNotApplicable(
                         f"slot {_slot.name!r}: its {_what} {_path} is inside {_over}, "
-                        "a slot of the applied set, which hides the base's own there",
+                        "a slot of the applied overlay, which hides the base's own "
+                        "there",
                         module=__name__,
                     )
             if _slot.path not in _covered and self._store.is_mounted(_slot.path):
-                raise ota_errors.ParameterSetNotApplicable(
+                raise ota_errors.OverlayNotApplicable(
                     f"slot {_slot.name!r}: something else is mounted at {_slot.path}",
                     module=__name__,
                 )
             self._check_mount_point_can_be_made(_slot.name, _slot.path)
         self._note_applies_others_can_change()
 
-    def _check_the_ecu_keeps_the_set(self) -> None:
-        """This ECU can keep the set it is given, and lay it at every boot; refused
+    def _check_the_ecu_keeps_the_overlay(self) -> None:
+        """This ECU can keep the overlay it is given, and lay it at every boot; refused
         before anything is written otherwise:
 
         - the store is root's alone: nothing is stored where another user could plant
-          a set whose `apply` runs as root;
-        - the boot-time unit is enabled on the host: without it, a reboot lays the set
-          only once otaclient starts (or never, with an otaclient that does not know
-          it), while its release is reported all along;
+          an overlay whose `apply` runs as root;
+        - the boot-time unit is enabled on the host: without it, a reboot lays the
+          overlay only once otaclient starts (or never, with an otaclient that does not
+          know it), while its release is reported all along;
         - no update staged in this boot may have armed the standby slot: a reboot,
-          the one a set may ask for included, would boot that trial;
-        - a store the slots share can tell the base a set is applied on: the running
-          image has an ID;
-        - the store holds no set of another base the platform may still fall back to:
-          until the running base is committed, that set stays the other base's.
+          the one an overlay may ask for included, would boot that trial;
+        - a store the slots share can tell the base an overlay is applied on: the
+          running image has an ID;
+        - the store holds no overlay of another base the platform may still fall back
+          to: until the running base is committed, that overlay stays the other base's.
         """
         if (_why := self._store.why_not_trusted()) is not None:
-            raise ota_errors.ParameterSetNotApplicable(
-                f"the parameter set store {self._store.root} cannot be trusted: {_why}",
+            raise ota_errors.OverlayNotApplicable(
+                f"the overlay store {self._store.root} cannot be trusted: {_why}",
                 module=__name__,
             )
         if not any(
             os.path.lexists(os.path.join(self._host_root, _w.lstrip("/")))
             for _w in BOOT_UNIT_WANTS
         ):
-            raise ota_errors.ParameterSetNotApplicable(
-                f"{BOOT_UNIT}, which lays the parameter set at boot, is not enabled "
+            raise ota_errors.OverlayNotApplicable(
+                f"{BOOT_UNIT}, which lays the overlay at boot, is not enabled "
                 f"on this ECU (none of {list(BOOT_UNIT_WANTS)})",
                 module=__name__,
             )
         if self._boot_controller.standby_armed_in_this_boot():
-            raise ota_errors.ParameterSetNotApplicable(
+            raise ota_errors.OverlayNotApplicable(
                 "an update was staged in this boot and may have armed the standby "
-                "slot for a trial boot: apply the parameter set after the next reboot",
+                "slot for a trial boot: apply the overlay after the next reboot",
                 module=__name__,
             )
         if not self._running_image_id and self._store.is_shared():
-            raise ota_errors.ParameterSetNotApplicable(
+            raise ota_errors.OverlayNotApplicable(
                 f"the running image has no image ID in {cfg.IMAGE_VERSION_FILE_FPATH}, "
-                "which a store the slots share needs to tell the base a set was "
+                "which a store the slots share needs to tell the base an overlay was "
                 "applied on",
                 module=__name__,
             )
-        _, _why = self._store.whose_set(
+        _, _why = self._store.whose_overlay(
             self._running_image_id, slot_records=self._boot_controller
         )
-        # a store on the slot's own root holds no set of a base to fall back to
+        # a store on the slot's own root holds no overlay of a base to fall back to
         if _why is not None and not self._base_committed and self._store.is_shared():
-            raise ota_errors.ParameterSetNotApplicable(
-                "the store holds the set of the base this ECU may still fall back to "
-                f"({_why}): apply again once this base is committed",
+            raise ota_errors.OverlayNotApplicable(
+                "the store holds the overlay of the base this ECU may still fall back "
+                f"to ({_why}): apply again once this base is committed",
                 module=__name__,
             )
 
@@ -376,18 +375,18 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         while _at != _root and not os.path.lexists(_at):
             _at = os.path.dirname(_at)
         if not os.access(_at, os.W_OK) or os.statvfs(_at).f_flag & os.ST_RDONLY:
-            raise ota_errors.ParameterSetNotApplicable(
+            raise ota_errors.OverlayNotApplicable(
                 f"slot {name!r}: the running image has no {path}, and it cannot be "
                 f"made: /{os.path.relpath(_at, _root)} is not writable",
                 module=__name__,
             )
 
     def _note_applies_others_can_change(self) -> None:
-        """An `apply` runs as root: one that users other than root can change (the
-        file, or a directory on its way, writable by them or not root's) is logged and
-        recorded. For an apply the set carries, the file and the slot holding it are
-        the set's (root's, laid read-only, checked with the layer): what is looked at
-        is the image's way to that slot, which a directory renamed there could
+        """An `apply` runs as root: one that users other than root can change (the file,
+        or a directory on its way, writable by them or not root's) is logged and
+        recorded. For an apply the overlay carries, the file and the slot holding it are
+        the overlay's (root's, laid read-only, checked with the layer): what is looked
+        at is the image's way to that slot, which a directory renamed there could
         redirect. Not refused: images in use have such directories (an application's
         tree owned by the application's user)."""
         assert self.config is not None
@@ -398,7 +397,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                 continue
             _in = (
                 slot_of(_slot.apply[1:], self.config.slots)
-                if apply_comes_with_set(_slot, self.config.slots)
+                if apply_comes_with_overlay(_slot, self.config.slots)
                 else None
             )
             # the way to look at: the apply itself, or what holds the slot it is in
@@ -432,49 +431,50 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                     session_id=self.session_id,
                 )
 
-    def _unpack(self, staging: Path, layer_f: Path) -> ParameterLayerInfo:
+    def _unpack(self, staging: Path, layer_f: Path) -> OverlayLayerInfo:
         """Unpack and check the layer into the staging; the files the config lists,
-        when it lists them, are exactly those, and an `apply` inside the set's slots
+        when it lists them, are exactly those, and an `apply` inside the overlay's slots
         is among the unpacked files as an executable regular file others cannot
         write."""
         assert self.manifest is not None and self.config is not None
         if self.manifest.layer is None:
-            return ParameterLayerInfo()
+            return OverlayLayerInfo()
         _tree = staging / TREE_DNAME
         _tree.mkdir(mode=0o755)
         try:
             with open(layer_f, "rb") as _blob:
-                _info = read_parameter_layer(
+                _info = read_overlay_layer(
                     _blob,
                     self.config.slots,
                     extract_to=_tree,
-                    max_size=cfg.PARAMETER_SET_MAX_SIZE,
+                    max_size=cfg.OVERLAY_MAX_SIZE,
                     blob_digest=self.manifest.layer.digest,
                     diff_id=self.config.diff_ids[0],
                 )
-        except ParameterLayerInvalid as e:
+        except OverlayLayerInvalid as e:
             raise ota_errors.OTAImageInvalid(
-                f"the parameter set's layer is invalid: {e}", module=__name__
+                f"the overlay's layer is invalid: {e}", module=__name__
             ) from e
         try:
             self.config.check_files(_info.files)
         except ValueError as e:
             raise ota_errors.OTAImageInvalid(
-                f"the parameter set's config does not agree with its layer: {e}",
+                f"the overlay's config does not agree with its layer: {e}",
                 module=__name__,
             ) from e
         try:
-            check_applies_in_set(_tree, self.config.slots)
+            check_applies_in_overlay(_tree, self.config.slots)
         except ValueError as e:
             raise ota_errors.OTAImageInvalid(
-                f"the apply the parameter set carries is not one to run: {e}",
+                f"the apply the overlay carries is not one to run: {e}",
                 module=__name__,
             ) from e
         return _info
 
     def _record(self) -> AppliedRecord:
-        """What the set is, and what it is applied on: the base's own records are
-        carried from the set before, or taken from the slot for the first set."""
+        """What the overlay is, and what it is applied on: the base's own records are
+        carried from the overlay before, or taken from the slot for the first
+        overlay."""
         assert self.manifest is not None and self.config is not None
         _before = self._store.applied_record_of(
             self._running_image_id, slot_records=self._boot_controller
@@ -487,9 +487,9 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         else:
             _base_version, _base_detail = self._boot_controller.load_recorded_version()
         return AppliedRecord(
-            set_manifest_digest=str(self._set_digest),
-            set_name=self.config.name,
-            set_version=self.config.version,
+            overlay_manifest_digest=str(self._overlay_digest),
+            overlay_name=self.config.name,
+            overlay_version=self.config.version,
             slots=[RecordedSlot.of(_s) for _s in self.config.slots],
             base_image_id=self._running_image_id,
             firmware_version=self.update_version,
@@ -503,8 +503,8 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         )
 
     def _mark_in_progress(self) -> None:
-        _err = ota_errors.ParameterSetApplyFailed(
-            "the parameter set update did not finish: otaclient stopped during it",
+        _err = ota_errors.OverlayApplyFailed(
+            "the overlay update did not finish: otaclient stopped during it",
             module=__name__,
         )
         self._boot_controller.store_failure_info(
@@ -516,8 +516,8 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         """Back to what the ECU had before the update: it can be retried; else what
         the ECU runs with is not known."""
         if restored:
-            return ota_errors.ParameterSetApplyFailed(detail, module=__name__)
-        return ota_errors.ParameterSetRestoreFailed(detail, module=__name__)
+            return ota_errors.OverlayApplyFailed(detail, module=__name__)
+        return ota_errors.OverlayRestoreFailed(detail, module=__name__)
 
     def _restore_version(self, version: tuple[str, VersionDetail | None]) -> bool:
         try:
@@ -531,10 +531,10 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             return False
 
     def execute(self) -> bool:
-        """Lay the set in place. Returns True when a slot's `apply` asks for a reboot,
-        which the caller does once the status is reported."""
+        """Lay the overlay in place. Returns True when a slot's `apply` asks for a
+        reboot, which the caller does once the status is reported."""
         logger.info(
-            f"execute parameter set update ({self._image_id}): "
+            f"execute overlay update ({self._image_id}): "
             f"{self.update_version=}, {self.release_name=}, {self.release_id=}"
         )
         _cond = threading.Condition()
@@ -556,10 +556,10 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             self._running_image_id = running_image_id()
             self._check_fits_the_running_base()
             logger.info(
-                f"parameter set {self.config.name} {self.config.version}: slots "
+                f"overlay {self.config.name} {self.config.version}: slots "
                 f"{[_s.name for _s in self.config.slots]}"
             )
-            # until the set is in place and recorded, the slot reports a failure: an
+            # until the overlay is in place and recorded, the slot reports a failure: an
             #   update cut short (otaclient stopped, power lost) is not taken for the
             #   success of the release before
             self._mark_in_progress()
@@ -577,7 +577,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                     raise_on_download_resources_failed(e)
 
             # ------ applying ------ #
-            # the staging is the set's own: an abort until here only discards it
+            # the staging is the overlay's own: an abort until here only discards it
             _now = self._report_phase(UpdatePhase.APPLYING_UPDATE)
             self._metrics.apply_update_start_timestamp = _now
             _info = self._unpack(_staging, _layer_f)
@@ -590,21 +590,21 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
 
             # from the switch on, the slot changes: no abort, as at a reboot
             self._abort_handler.enter_final_phase()
-            # a set of another base the store holds (this base committed: checked
-            #   before) is replaced, not the set before
-            self._store.set_aside_another_bases_set(
+            # an overlay of another base the store holds (this base committed: checked
+            #   before) is replaced, not the overlay before
+            self._store.set_aside_another_bases_overlay(
                 self._running_image_id, slot_records=self._boot_controller
             )
             try:
                 _reboot = self._store.switch()
-            except ParameterSetFailed as e:
+            except OverlayFailed as e:
                 raise self._apply_failed(str(e), restored=e.restored) from e
 
             # ------ post update ------ #
             _now = self._report_phase(UpdatePhase.PROCESSING_POSTUPDATE)
             self._metrics.post_update_start_timestamp = _now
             try:
-                self._boot_controller.on_parameter_set_applied(
+                self._boot_controller.on_overlay_applied(
                     version=self.update_version, version_detail=self._version_detail
                 )
             except Exception as e:
@@ -618,14 +618,14 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             return _reboot
 
         except ota_errors.OTAAbortSignal:
-            logger.info("parameter set update aborted")
+            logger.info("overlay update aborted")
             raise
         except Exception as e:
             # an error not raised above came before the switch: nothing changed
             _err = (
                 e
                 if isinstance(e, ota_errors.OTAError)
-                else ota_errors.ParameterSetApplyFailed(
+                else ota_errors.OverlayApplyFailed(
                     f"unspecific error, nothing changed: {e!r}", module=__name__
                 )
             )

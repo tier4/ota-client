@@ -83,12 +83,12 @@ class BootControllerBase(ABC):
             self._ota_status_control.load_active_slot_version_detail(),
         )
 
-    def on_parameter_set_applied(
+    def on_overlay_applied(
         self, *, version: str, version_detail: VersionDetail | None
     ) -> None:
-        """A parameter set is in place on the current slot (no slot switch): record
+        """An overlay is in place on the current slot (no slot switch): record
         its release as the slot's, with the status SUCCESS."""
-        self._ota_status_control.on_parameter_set_applied(
+        self._ota_status_control.on_overlay_applied(
             version=version, version_detail=version_detail
         )
 
@@ -96,7 +96,7 @@ class BootControllerBase(ABC):
         self, *, version: str, version_detail: VersionDetail | None
     ) -> None:
         """Record `version` and `version_detail` as the current slot's again: the
-        base's, when its parameter set is dropped."""
+        base's, when its overlay is dropped."""
         self._ota_status_control.store_current_version(
             version=version, version_detail=version_detail
         )
@@ -108,7 +108,7 @@ class BootControllerBase(ABC):
 
     def reboot_current_slot(self) -> NoReturn:
         """Reboot into the slot that runs now: a plain reboot, as nothing was switched
-        (a parameter set whose changed slot's `apply` is `reboot`)."""
+        (an overlay whose changed slot's `apply` is `reboot`)."""
         cmdhelper.reboot(chroot=_env.get_dynamic_client_chroot_path())
 
     def load_standby_slot_version(self) -> str:
